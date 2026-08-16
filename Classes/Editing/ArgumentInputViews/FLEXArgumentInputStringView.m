@@ -8,6 +8,7 @@
 
 #import "FLEXArgumentInputStringView.h"
 #import "FLEXRuntimeUtility.h"
+#import "FLEXHeapEnumerator.h"
 #import <objc/runtime.h>
 
 @implementation FLEXArgumentInputStringView
@@ -145,45 +146,112 @@
         [values addObjectsFromArray:[defaults persistentDomainForName:bundleID].allKeys];
     }
 
-    // 3. Common system notification names, which are frequent string arguments
-    // to addObserver:-style APIs.
-    [values addObjectsFromArray:[self commonNotificationNames]];
+    return [[values array] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
++ (void)additionalStringsWithCompletion:(void(^)(NSArray<NSString *> *values))completion {
+    if (!completion) {
+        return;
+    }
+
+    // Heap enumeration walks a process-global, non-thread-safe class registry,
+    // so keep the scan on the main queue like FLEX's other heap walkers. The
+    // picker shows a spinner before this deferred work runs, so the brief pause
+    // during the walk is expected rather than a hang.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        completion([self collectAdditionalStrings]);
+    });
+}
+
+/// Dynamically discovers string candidates that are relevant to the running
+/// process, rather than relying on a hardcoded list.
++ (NSArray<NSString *> *)collectAdditionalStrings {
+    NSMutableOrderedSet<NSString *> *values = [NSMutableOrderedSet new];
+
+    // Live NSString instances (and subclasses) on the heap.
+    [self addHeapStringsToSet:values];
+    // Class and protocol names registered with the Objective-C runtime.
+    [self addRuntimeNamesToSet:values];
 
     return [[values array] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
 }
 
-+ (NSArray<NSString *> *)commonNotificationNames {
-    return @[
-        UIApplicationDidFinishLaunchingNotification,
-        UIApplicationDidBecomeActiveNotification,
-        UIApplicationWillResignActiveNotification,
-        UIApplicationDidEnterBackgroundNotification,
-        UIApplicationWillEnterForegroundNotification,
-        UIApplicationWillTerminateNotification,
-        UIApplicationDidReceiveMemoryWarningNotification,
-        UIApplicationSignificantTimeChangeNotification,
-        UIApplicationUserDidTakeScreenshotNotification,
-        UIKeyboardWillShowNotification,
-        UIKeyboardDidShowNotification,
-        UIKeyboardWillHideNotification,
-        UIKeyboardDidHideNotification,
-        UIKeyboardWillChangeFrameNotification,
-        UIKeyboardDidChangeFrameNotification,
-        UIDeviceOrientationDidChangeNotification,
-        UIDeviceBatteryStateDidChangeNotification,
-        UIDeviceBatteryLevelDidChangeNotification,
-        UIDeviceProximityStateDidChangeNotification,
-        UIScreenBrightnessDidChangeNotification,
-        UIScreenDidConnectNotification,
-        UIScreenDidDisconnectNotification,
-        UIContentSizeCategoryDidChangeNotification,
-        UIAccessibilityReduceMotionStatusDidChangeNotification,
-        UIAccessibilityVoiceOverStatusDidChangeNotification,
-        NSCurrentLocaleDidChangeNotification,
-        NSUserDefaultsDidChangeNotification,
-        NSSystemClockDidChangeNotification,
-        NSSystemTimeZoneDidChangeNotification,
-    ];
++ (void)addHeapStringsToSet:(NSMutableOrderedSet<NSString *> *)values {
+    static const NSUInteger kMaxHeapStrings = 2000;
+    static const NSUInteger kMaxStringLength = 512;
+    __block NSUInteger collected = 0;
+
+    [FLEXHeapEnumerator enumerateLiveObjectsUsingBlock:^(
+        __unsafe_unretained id object, __unsafe_unretained Class actualClass
+    ) {
+        if (collected >= kMaxHeapStrings) {
+            return;
+        }
+
+        // Only touch objects whose isa chain leads to NSString, and never
+        // message a candidate until we've retained it.
+        if (![self class:actualClass isKindOfString]) {
+            return;
+        }
+
+        id string = object;
+        @try {
+            if (string.length > 0) {
+                if (string.length > kMaxStringLength) {
+                    string = [string substringToIndex:kMaxStringLength];
+                }
+                [values addObject:string];
+                collected++;
+            }
+        } @catch (NSException *exception) {
+            // Ignore candidates that fail to produce a usable string.
+            (void)exception;
+        }
+    }];
+}
+
++ (BOOL)class:(Class)cls isKindOfString {
+    static Class stringClass = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        stringClass = [NSString class];
+    });
+
+    Class cursor = cls;
+    while (cursor != NULL) {
+        if (cursor == stringClass) {
+            return YES;
+        }
+        cursor = class_getSuperclass(cursor);
+    }
+    return NO;
+}
+
++ (void)addRuntimeNamesToSet:(NSMutableOrderedSet<NSString *> *)values {
+    int classCount = objc_getClassList(NULL, 0);
+    if (classCount > 0) {
+        Class *classes = (Class *)malloc((size_t)classCount * sizeof(Class));
+        int actual = objc_getClassList(classes, classCount);
+        for (int i = 0; i < actual; i++) {
+            const char *name = class_getName(classes[i]);
+            if (name != NULL) {
+                [values addObject:@(name)];
+            }
+        }
+        free(classes);
+    }
+
+    unsigned int protocolCount = 0;
+    Protocol *__unsafe_unretained *protocols = objc_copyProtocolList(&protocolCount);
+    for (unsigned int i = 0; i < protocolCount; i++) {
+        const char *name = protocol_getName(protocols[i]);
+        if (name != NULL) {
+            [values addObject:@(name)];
+        }
+    }
+    if (protocols != NULL) {
+        free(protocols);
+    }
 }
 
 + (NSArray<NSString *> *)selectorNamesForObject:(id)object instanceMethod:(BOOL)instanceMethod {

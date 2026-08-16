@@ -152,8 +152,9 @@ To test:
   searchable picker, instead of requiring free-text entry
 - **Value pools for plain `NSString` arguments** - method calls that take a
   string now also offer a searchable "Choose" pool built from KVC key paths on
-  the target, the app's user-defaults keys, and common system notification
-  names, instead of forcing free-text entry
+  the target and the app's user-defaults keys up front, then lazily extends
+  itself by scanning the heap (live `NSString` instances) and the Objective-C
+  runtime (class and protocol names) — no hardcoded value list
 - **Modern pickers** - the selector, string, and instance pickers now use the
   iOS 26 inset-grouped list style so they match the rest of the modernized UI
 - **Liquid Glass design (iOS 26)** - the explorer toolbar is now a floating

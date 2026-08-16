@@ -70,12 +70,17 @@
             ];
             inputView.suggestedValuesTitle = @"Selectors";
         } else if ([FLEXArgumentInputStringView isStringObjectTypeEncoding:argumentTypeEncoding]) {
-            // Plain string arguments get a pool of KVC key paths, defaults keys,
-            // and notification names instead of forcing free-text entry.
+            // Plain string arguments get a fast pool of key paths and defaults
+            // keys up front, plus a lazy scan of heap strings and runtime names.
+            inputView.suggestedValuesTitle = @"Values";
+            // Assign the loader first so the "Choose" button stays visible even
+            // when the fast pool above is empty.
+            inputView.suggestedValuesLoader = ^(void(^done)(NSArray<NSString *> *values)) {
+                [FLEXArgumentInputStringView additionalStringsWithCompletion:done];
+            };
             inputView.suggestedValues = [FLEXArgumentInputStringView
                 suggestedStringsForObject:self.target
             ];
-            inputView.suggestedValuesTitle = @"Values";
         }
 
         free(argumentTypeEncoding);

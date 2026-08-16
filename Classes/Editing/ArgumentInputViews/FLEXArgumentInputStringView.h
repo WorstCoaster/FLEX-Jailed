@@ -24,9 +24,14 @@
 + (NSArray<NSString *> *)selectorNamesForObject:(id)object
                                  instanceMethod:(BOOL)instanceMethod;
 
-/// A context-aware pool of likely string values for a method argument:
-/// KVC key paths on the target, the app's user-defaults keys, and common
-/// system notification names. Sorted and de-duplicated.
+/// A fast, context-aware pool of likely string values for a method argument:
+/// KVC key paths on the target (from the runtime) and the app's user-defaults
+/// keys. Sorted and de-duplicated.
 + (NSArray<NSString *> *)suggestedStringsForObject:(id)object;
+
+/// Asynchronously collects additional string candidates by scanning the heap
+/// (live `NSString` instances) and the runtime (class and protocol names).
+/// The completion block is always called on the main thread.
++ (void)additionalStringsWithCompletion:(void(^)(NSArray<NSString *> *values))completion;
 
 @end

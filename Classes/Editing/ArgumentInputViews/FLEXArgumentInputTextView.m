@@ -109,7 +109,9 @@
 
 - (void)setSuggestedValues:(NSArray<NSString *> *)suggestedValues {
     [super setSuggestedValues:suggestedValues];
-    self.suggestButton.hidden = suggestedValues.count == 0;
+    // Show the picker when there is a fast pool or a lazy loader; the loader
+    // can still populate an initially-empty list by scanning the heap/runtime.
+    self.suggestButton.hidden = suggestedValues.count == 0 && !self.suggestedValuesLoader;
     [self setNeedsLayout];
     [self.superview setNeedsLayout];
 }
@@ -121,6 +123,7 @@
     FLEXStringPickerViewController *picker = [FLEXStringPickerViewController
         options:self.suggestedValues
         title:self.suggestedValuesTitle
+        optionsProvider:self.suggestedValuesLoader
         completion:^(NSString *value) {
             self.inputTextView.text = value;
             [self textViewDidChange:self.inputTextView];

@@ -43,6 +43,10 @@ typedef NS_ENUM(NSUInteger, FLEXArgumentInputViewSize) {
 @property (nonatomic, copy) NSArray<NSString *> *suggestedValues;
 /// Title for the picker presented for \c suggestedValues. Defaults to @"Choose".
 @property (nonatomic, copy) NSString *suggestedValuesTitle;
+/// Optional block that lazily produces additional suggested string values
+/// (for example by scanning the heap and runtime). The block receives a
+/// completion handler that it calls with the extra values.
+@property (nonatomic, copy) void (^suggestedValuesLoader)(void(^completion)(NSArray<NSString *> *values));
 
 /// Users of the input view can get delegate callbacks for incremental changes in user input.
 @property (nonatomic, weak) id <FLEXArgumentInputViewDelegate> delegate;
