@@ -202,12 +202,20 @@ static BOOL my_os_log_shim_enabled(void *addr) {
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     BOOL disableOSLog = defaults.flex_disableOSLog;
     BOOL persistent = defaults.flex_cacheOSLogMessages;
+    BOOL hideFLEXLogs = defaults.flex_hideFLEXLogMessages;
+    BOOL hideUINoise = defaults.flex_hideUINoiseLogMessages;
 
     NSString *aslToggle = disableOSLog ? @"Enable os_log (default)" : @"Disable os_log";
     NSString *persistence = persistent ? @"Disable persistent logging" : @"Enable persistent logging";
+    NSString *flexFilterToggle = hideFLEXLogs ? @"Show FLEX's own logs" : @"Hide FLEX's own logs";
+    NSString *noiseFilterToggle = hideUINoise ? @"Show UI noise (scroll/layout)" : @"Hide UI noise (scroll/layout)";
 
     NSString *title = @"System Log Settings";
-    NSString *body = @"In iOS 10 and up, ASL has been replaced by os_log. "
+    NSString *body = @"FLEX's own messages and system UI chatter (scrolling, layout, "
+    "focus, and similar screen-interaction noise) are filtered out by default so "
+    "the log stays readable. You can re-enable either stream below. \n\n"
+
+    "In iOS 10 and up, ASL has been replaced by os_log. "
     "The os_log API is much more limited. Below, you can opt-into the old behavior "
     "if you want cleaner, more reliable logs within FLEX, but this will break "
     "anything that expects os_log to be working, such as Console.app. "
@@ -222,6 +230,14 @@ static BOOL my_os_log_shim_enabled(void *addr) {
 
     [FLEXAlert makeAlert:^(FLEXAlert *make) {
         make.title(title).message(body);
+
+        make.button(flexFilterToggle).handler(^(NSArray<NSString *> *strings) {
+            [defaults flex_toggleBoolForKey:kFLEXDefaultsHideFLEXLogMessagesKey];
+        });
+        make.button(noiseFilterToggle).handler(^(NSArray<NSString *> *strings) {
+            [defaults flex_toggleBoolForKey:kFLEXDefaultsHideUINoiseLogMessagesKey];
+        });
+
         make.button(aslToggle).destructiveStyle().handler(^(NSArray<NSString *> *strings) {
             [defaults flex_toggleBoolForKey:kFLEXDefaultsDisableOSLogForceASLKey];
         });

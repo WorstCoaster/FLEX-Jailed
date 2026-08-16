@@ -12,6 +12,7 @@
 #import "FLEXObjectExplorerFactory.h"
 #import "FLEXObjectExplorerViewController.h"
 #import "FLEXArgumentInputView.h"
+#import "FLEXArgumentInputStringView.h"
 #import "FLEXArgumentInputViewFactory.h"
 #import "FLEXUtility.h"
 
@@ -59,6 +60,17 @@
     for (NSString *methodComponent in methodComponents) {
         char *argumentTypeEncoding = method_copyArgumentType(method, argumentIndex);
         FLEXArgumentInputView *inputView = [FLEXArgumentInputViewFactory argumentInputViewForTypeEncoding:argumentTypeEncoding];
+
+        // For SEL arguments, offer the pool of selectors available on the target
+        // instead of making the user type (or dig through the debugger for) one.
+        if ([FLEXArgumentInputStringView isSelectorTypeEncoding:argumentTypeEncoding]) {
+            inputView.suggestedValues = [FLEXArgumentInputStringView
+                selectorNamesForObject:self.target
+                instanceMethod:self.method.isInstanceMethod
+            ];
+            inputView.suggestedValuesTitle = @"Selectors";
+        }
+
         free(argumentTypeEncoding);
 
         inputView.backgroundColor = self.view.backgroundColor;

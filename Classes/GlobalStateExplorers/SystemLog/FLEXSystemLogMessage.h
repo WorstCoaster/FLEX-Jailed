@@ -16,6 +16,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)logMessageFromASLMessage:(aslmsg)aslMessage;
 + (instancetype)logMessageFromDate:(NSDate *)date text:(NSString *)text;
++ (instancetype)logMessageFromDate:(NSDate *)date
+                              text:(NSString *)text
+                           process:(nullable NSString *)process
+                         subsystem:(nullable NSString *)subsystem
+                          category:(nullable NSString *)category;
 
 // ASL specific properties
 @property (nonatomic, readonly, nullable) NSString *sender;
@@ -24,6 +29,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSDate *date;
 @property (nonatomic, readonly) NSString *messageText;
 @property (nonatomic, readonly) long long messageID;
+
+// OSLog (unified log) metadata; nil for ASL messages
+@property (nonatomic, readonly, nullable) NSString *process;
+@property (nonatomic, readonly, nullable) NSString *subsystem;
+@property (nonatomic, readonly, nullable) NSString *category;
 
 @end
 

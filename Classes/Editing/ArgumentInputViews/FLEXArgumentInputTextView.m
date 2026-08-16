@@ -8,12 +8,14 @@
 
 #import "FLEXColor.h"
 #import "FLEXArgumentInputTextView.h"
+#import "FLEXStringPickerViewController.h"
 #import "FLEXUtility.h"
 
 @interface FLEXArgumentInputTextView ()
 
 @property (nonatomic) UITextView *inputTextView;
 @property (nonatomic) UILabel *placeholderLabel;
+@property (nonatomic) UIButton *suggestButton;
 @property (nonatomic, readonly) NSUInteger numberOfInputLines;
 
 @end
@@ -45,8 +47,18 @@
         self.placeholderLabel.textColor = FLEXColor.deemphasizedTextColor;
         self.placeholderLabel.numberOfLines = 0;
 
+        self.suggestButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        self.suggestButton.tintColor = FLEXColor.tintColor;
+        self.suggestButton.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+        self.suggestButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        [self.suggestButton setImage:[UIImage systemImageNamed:@"list.bullet"] forState:UIControlStateNormal];
+        [self.suggestButton setTitle:@" Choose" forState:UIControlStateNormal];
+        [self.suggestButton addTarget:self action:@selector(suggestButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        self.suggestButton.hidden = YES;
+
         [self addSubview:self.inputTextView];
         [self.inputTextView addSubview:self.placeholderLabel];
+        [self addSubview:self.suggestButton];
 
     }
     return self;
@@ -93,10 +105,48 @@
 }
 
 
+#pragma mark - Suggested values pool
+
+- (void)setSuggestedValues:(NSArray<NSString *> *)suggestedValues {
+    [super setSuggestedValues:suggestedValues];
+    self.suggestButton.hidden = suggestedValues.count == 0;
+    [self setNeedsLayout];
+    [self.superview setNeedsLayout];
+}
+
+- (void)suggestButtonTapped:(UIButton *)sender {
+    [self.inputTextView resignFirstResponder];
+
+    UIViewController *host = [FLEXUtility viewControllerForView:self];
+    FLEXStringPickerViewController *picker = [FLEXStringPickerViewController
+        options:self.suggestedValues
+        title:self.suggestedValuesTitle
+        completion:^(NSString *value) {
+            self.inputTextView.text = value;
+            [self textViewDidChange:self.inputTextView];
+        }
+    ];
+
+    [host.navigationController pushViewController:picker animated:YES];
+}
+
+- (CGFloat)suggestButtonHeight {
+    return 28;
+}
+
+
 #pragma mark - Superclass Overrides
 
 - (BOOL)inputViewIsFirstResponder {
     return self.inputTextView.isFirstResponder;
+}
+
+- (CGFloat)topInputFieldVerticalLayoutGuide {
+    CGFloat guide = [super topInputFieldVerticalLayoutGuide];
+    if (!self.suggestButton.hidden) {
+        guide += [self suggestButtonHeight] + 4;
+    }
+    return guide;
 }
 
 
@@ -104,6 +154,15 @@
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+
+    if (!self.suggestButton.hidden) {
+        self.suggestButton.frame = CGRectMake(
+            0,
+            [super topInputFieldVerticalLayoutGuide],
+            self.bounds.size.width,
+            [self suggestButtonHeight]
+        );
+    }
     
     self.inputTextView.frame = CGRectMake(0, self.topInputFieldVerticalLayoutGuide, self.bounds.size.width, [self inputTextViewHeight]);
     // Placeholder label is positioned by insetting then origin
@@ -134,6 +193,9 @@
 - (CGSize)sizeThatFits:(CGSize)size {
     CGSize fitSize = [super sizeThatFits:size];
     fitSize.height += [self inputTextViewHeight];
+    if (!self.suggestButton.hidden) {
+        fitSize.height += [self suggestButtonHeight] + 4;
+    }
     return fitSize;
 }
 

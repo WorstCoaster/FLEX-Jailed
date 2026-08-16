@@ -49,6 +49,18 @@
     return [[self alloc] initWithDate:date sender:nil text:text messageID:0];
 }
 
++ (instancetype)logMessageFromDate:(NSDate *)date
+                              text:(NSString *)text
+                           process:(NSString *)process
+                         subsystem:(NSString *)subsystem
+                          category:(NSString *)category {
+    FLEXSystemLogMessage *message = [[self alloc] initWithDate:date sender:nil text:text messageID:0];
+    message->_process = process;
+    message->_subsystem = subsystem;
+    message->_category = category;
+    return message;
+}
+
 - (id)initWithDate:(NSDate *)date sender:(NSString *)sender text:(NSString *)text messageID:(long long)identifier {
     self = [super init];
     if (self) {

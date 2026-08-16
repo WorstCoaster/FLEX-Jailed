@@ -9,12 +9,14 @@
 #import "FLEXFieldEditorViewController.h"
 #import "FLEXFieldEditorView.h"
 #import "FLEXArgumentInputViewFactory.h"
+#import "FLEXArgumentInputStringView.h"
 #import "FLEXPropertyAttributes.h"
 #import "FLEXRuntimeUtility.h"
 #import "FLEXMetadataExtras.h"
 #import "FLEXUtility.h"
 #import "FLEXColor.h"
 #import "UIBarButtonItem+FLEX.h"
+#import <objc/runtime.h>
 
 @interface FLEXFieldEditorViewController () <FLEXArgumentInputViewDelegate>
 
@@ -71,6 +73,17 @@
     FLEXArgumentInputView *inputView = [FLEXArgumentInputViewFactory argumentInputViewForTypeEncoding:self.typeEncoding];
     inputView.inputValue = self.currentValue;
     inputView.delegate = self;
+
+    // Offer the pool of selectors available on the target for SEL-typed fields.
+    if ([FLEXArgumentInputStringView isSelectorTypeEncoding:self.typeEncoding]) {
+        BOOL isInstanceMethod = !object_isClass(self.target);
+        inputView.suggestedValues = [FLEXArgumentInputStringView
+            selectorNamesForObject:self.target
+            instanceMethod:isInstanceMethod
+        ];
+        inputView.suggestedValuesTitle = @"Selectors";
+    }
+
     self.fieldEditorView.argumentInputViews = @[inputView];
 
     // Don't show a "set" button for switches; we mutate when the switch is flipped

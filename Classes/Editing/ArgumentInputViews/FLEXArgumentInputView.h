@@ -37,6 +37,13 @@ typedef NS_ENUM(NSUInteger, FLEXArgumentInputViewSize) {
 /// Useful to increase the use of space if there is only one input view on screen (i.e. for property and ivar editing).
 @property (nonatomic) FLEXArgumentInputViewSize targetSize;
 
+/// Optional pool of valid string values for this field. Text-based inputs show
+/// a "Choose" button that presents these as a searchable picker, so users don't
+/// have to type (or guess) values such as selector names.
+@property (nonatomic, copy) NSArray<NSString *> *suggestedValues;
+/// Title for the picker presented for \c suggestedValues. Defaults to @"Choose".
+@property (nonatomic, copy) NSString *suggestedValuesTitle;
+
 /// Users of the input view can get delegate callbacks for incremental changes in user input.
 @property (nonatomic, weak) id <FLEXArgumentInputViewDelegate> delegate;
 

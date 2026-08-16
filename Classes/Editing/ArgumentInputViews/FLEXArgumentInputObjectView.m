@@ -53,7 +53,11 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
         [self addSubview:self.objectTypeSegmentControl];
 
         self.instanceButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        [self.instanceButton setTitle:@"Choose instance…" forState:UIControlStateNormal];
+        self.instanceButton.tintColor = FLEXColor.tintColor;
+        self.instanceButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+        self.instanceButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        [self.instanceButton setImage:[UIImage systemImageNamed:@"list.bullet"] forState:UIControlStateNormal];
+        [self.instanceButton setTitle:@" Choose instance" forState:UIControlStateNormal];
         [self.instanceButton addTarget:self action:@selector(instanceButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:self.instanceButton];
 
@@ -64,7 +68,11 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
         [self addSubview:self.instanceLabel];
 
         self.inputType = [[self class] preferredDefaultTypeForObjCType:typeEncoding withCurrentValue:nil];
-        self.objectTypeSegmentControl.selectedSegmentIndex = self.inputType;
+        // When we defaulted to the instance pool, the segment control may not
+        // have been given a valid selection yet.
+        if (self.objectTypeSegmentControl.numberOfSegments > self.inputType) {
+            self.objectTypeSegmentControl.selectedSegmentIndex = self.inputType;
+        }
         [self updateSubviewsForInputType];
     }
 
@@ -185,10 +193,19 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
 
 - (void)updateInstanceControls {
     if (self.selectedInstance) {
-        self.instanceLabel.text = [NSString stringWithFormat:@"%@  %p",
-            [FLEXRuntimeUtility safeClassNameForObject:self.selectedInstance], self.selectedInstance
-        ];
+        [self.instanceButton setTitle:@" Change instance" forState:UIControlStateNormal];
+
+        NSString *className = [FLEXRuntimeUtility safeClassNameForObject:self.selectedInstance];
+        NSString *summary = [FLEXRuntimeUtility summaryForObject:self.selectedInstance];
+        if (summary.length) {
+            self.instanceLabel.text = [NSString stringWithFormat:@"%@ %p — %@",
+                className, self.selectedInstance, summary
+            ];
+        } else {
+            self.instanceLabel.text = [NSString stringWithFormat:@"%@ %p", className, self.selectedInstance];
+        }
     } else {
+        [self.instanceButton setTitle:@" Choose instance" forState:UIControlStateNormal];
         self.instanceLabel.text = @"No instance selected";
     }
 
@@ -281,6 +298,12 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
             return FLEXArgInputObjectTypeAddress;
         }
     } else {
+        // No current value: prefer the instance pool when we know the class,
+        // so the available options are immediately visible.
+        if ([FLEXObjectPickerViewController canPickInstancesOfTypeEncoding:type]) {
+            return FLEXArgInputObjectTypeInstance;
+        }
+
         // Otherwise, see if we have more type information than just 'id'.
         // If we do, make sure the encoding is something serializable to JSON.
         // Properties and ivars keep more detailed type encoding information than method arguments.

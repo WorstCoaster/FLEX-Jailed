@@ -34,6 +34,12 @@ static uint8_t (*OSLogGetType)(void *);
 @interface FLEXOSActivityEvent : NSObject
 @property (nonatomic, copy) NSString *eventMessage;
 @property (nonatomic, readonly) NSDate *timestamp;
+@property (nonatomic, readonly) NSString *process;
+@property (nonatomic, readonly) NSString *processImagePath;
+@property (nonatomic, readonly) NSString *sender;
+@property (nonatomic, readonly) NSString *senderImagePath;
+@property (nonatomic, readonly) NSString *subsystem;
+@property (nonatomic, readonly) NSString *category;
 @end
 
 
@@ -51,6 +57,11 @@ static uint8_t (*OSLogGetType)(void *);
 @property (nonatomic) os_activity_stream_t stream;
 
 - (NSString *)messageTextForEntry:(os_activity_stream_entry_t)entry date:(NSDate **)outDate;
+- (NSString *)messageTextForEntry:(os_activity_stream_entry_t)entry
+                             date:(NSDate **)outDate
+                          process:(NSString **)outProcess
+                        subsystem:(NSString **)outSubsystem
+                         category:(NSString **)outCategory;
 
 @end
 
@@ -182,10 +193,30 @@ static uint8_t (*OSLogGetType)(void *);
         if (entry->type == OS_ACTIVITY_STREAM_TYPE_LOG_MESSAGE ||
             entry->type == OS_ACTIVITY_STREAM_TYPE_LEGACY_LOG_MESSAGE) {
             NSDate *date = nil;
-            NSString *msg = [self messageTextForEntry:entry date:&date] ?: @"";
+            NSString *process = nil, *subsystem = nil, *category = nil;
+            NSString *msg = [self messageTextForEntry:entry
+                                                 date:&date
+                                              process:&process
+                                            subsystem:&subsystem
+                                             category:&category] ?: @"";
+
+            // Drop FLEX's own chatter and system UI noise (scroll/layout/focus)
+            // so the log stays usable while tapping and scrolling the screen.
+            if ([self shouldHideMessage:msg
+                              process:process
+                            subsystem:subsystem
+                             category:category]) {
+                return YES;
+            }
 
             dispatch_async(dispatch_get_main_queue(), ^{
-                FLEXSystemLogMessage *message = [FLEXSystemLogMessage logMessageFromDate:date text:msg];
+                FLEXSystemLogMessage *message = [FLEXSystemLogMessage
+                    logMessageFromDate:date
+                                  text:msg
+                               process:process
+                             subsystem:subsystem
+                              category:category
+                ];
                 if (self.persistent) {
                     [self.messages addObject:message];
                 }
@@ -205,6 +236,14 @@ static uint8_t (*OSLogGetType)(void *);
 /// https://github.com/FLEXTool/FLEX/issues/564 and
 /// https://github.com/FLEXTool/FLEX/issues/717
 - (NSString *)messageTextForEntry:(os_activity_stream_entry_t)entry date:(NSDate **)outDate {
+    return [self messageTextForEntry:entry date:outDate process:NULL subsystem:NULL category:NULL];
+}
+
+- (NSString *)messageTextForEntry:(os_activity_stream_entry_t)entry
+                             date:(NSDate **)outDate
+                          process:(NSString **)outProcess
+                        subsystem:(NSString **)outSubsystem
+                         category:(NSString **)outCategory {
     static Class OSActivityEventClass = nil;
     static SEL makeEventSEL = NULL;
     static BOOL hasWrapper = NO;
@@ -227,6 +266,20 @@ static uint8_t (*OSLogGetType)(void *);
                 *outDate = [date isKindOfClass:[NSDate class]] ? date : [NSDate date];
             }
 
+            // Metadata is read defensively; the wrapper's exact property list
+            // can differ between OS versions. `sender` identifies the emitting
+            // library (e.g. FLEX.dylib or UIKitCore), which is what we filter on.
+            if (outProcess) {
+                *outProcess = [self stringFromEvent:event property:@"sender"] ?:
+                              [self stringFromEvent:event property:@"process"];
+            }
+            if (outSubsystem) {
+                *outSubsystem = [self stringFromEvent:event property:@"subsystem"];
+            }
+            if (outCategory) {
+                *outCategory = [self stringFromEvent:event property:@"category"];
+            }
+
             NSString *text = event.eventMessage;
             return [text isKindOfClass:[NSString class]] ? text : @"";
         }
@@ -245,6 +298,19 @@ static uint8_t (*OSLogGetType)(void *);
         *outDate = [NSDate dateWithTimeIntervalSince1970:log_message->tv_gmt.tv_sec];
     }
 
+    if (outProcess) {
+        const char *path = log_message->image_path ?: entry->proc_imagepath;
+        if (path != NULL) {
+            *outProcess = @(path).lastPathComponent;
+        }
+    }
+    if (outSubsystem && log_message->subsystem != NULL) {
+        *outSubsystem = @(log_message->subsystem);
+    }
+    if (outCategory && log_message->category != NULL) {
+        *outCategory = @(log_message->category);
+    }
+
     if (OSLogCopyFormattedMessage) {
         const char *formatted = OSLogCopyFormattedMessage(log_message);
         if (formatted != NULL && formatted[0] != '\0' &&
@@ -258,6 +324,120 @@ static uint8_t (*OSLogGetType)(void *);
     }
 
     return @"";
+}
+
+/// Reads a string property from the wrapper without assuming it exists on the
+/// private class at runtime.
+- (nullable NSString *)stringFromEvent:(id)event property:(NSString *)property {
+    SEL sel = NSSelectorFromString(property);
+    if (sel && [event respondsToSelector:sel]) {
+        id value = ((id (*)(id, SEL))objc_msgSend)(event, sel);
+        if ([value isKindOfClass:[NSString class]]) {
+            return value;
+        }
+    }
+    return nil;
+}
+
+#pragma mark - Filtering
+
+/// Returns YES when a log message should be hidden as noise.
+- (BOOL)shouldHideMessage:(NSString *)message
+                  process:(NSString *)process
+                subsystem:(NSString *)subsystem
+                 category:(NSString *)category {
+    // Never show empty rows or the legacy compose-failure marker.
+    if (message.length == 0 || [message containsString:@"<compose failure"]) {
+        return YES;
+    }
+
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+
+    if (defaults.flex_hideFLEXLogMessages) {
+        if ([self.class stringLooksLikeFLEX:process] ||
+            [self.class stringLooksLikeFLEX:subsystem] ||
+            [self.class stringLooksLikeFLEX:category]) {
+            return YES;
+        }
+    }
+
+    if (defaults.flex_hideUINoiseLogMessages) {
+        if ([self.class stringLooksLikeUINoiseSource:subsystem] ||
+            [self.class stringLooksLikeUINoiseSource:process] ||
+            [self.class stringLooksLikeUINoiseCategory:category]) {
+            return YES;
+        }
+    }
+
+    return NO;
+}
+
+/// Matches FLEX's own dylib/bundle identifiers without matching the common
+/// English substring "flex" inside unrelated words like "flexible".
++ (BOOL)stringLooksLikeFLEX:(NSString *)string {
+    if (string.length == 0) {
+        return NO;
+    }
+
+    NSString *lower = string.lowercaseString;
+    if ([lower isEqualToString:@"flex"]) {
+        return YES;
+    }
+    if ([lower containsString:@"flex.dylib"] ||
+        [lower containsString:@"flex.framework"] ||
+        [lower containsString:@"com.flipboard.flex"] ||
+        [lower containsString:@"/flex"]) {
+        return YES;
+    }
+    return NO;
+}
+
++ (BOOL)stringLooksLikeUINoiseSource:(NSString *)string {
+    if (string.length == 0) {
+        return NO;
+    }
+
+    NSString *lower = string.lowercaseString;
+    static NSArray<NSString *> *needles;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        needles = @[
+            @"uikitcore", @"uikit", @"swiftui", @"uifoundation", @"coreui",
+            @"com.apple.accessibility", @"uiapplication", @"frontboard",
+            @"springboard", @"textinputui", @"viewbridge"
+        ];
+    });
+
+    for (NSString *needle in needles) {
+        if ([lower containsString:needle]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
++ (BOOL)stringLooksLikeUINoiseCategory:(NSString *)string {
+    if (string.length == 0) {
+        return NO;
+    }
+
+    NSString *lower = string.lowercaseString;
+    static NSArray<NSString *> *needles;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        needles = @[
+            @"auto layout", @"autolayout", @"constraints", @"layout",
+            @"scroll", @"uifocus", @"focus", @"hittest", @"hit test",
+            @"gesture", @"touch", @"keyboard", @"textinput", @"reuse"
+        ];
+    });
+
+    for (NSString *needle in needles) {
+        if ([lower containsString:needle]) {
+            return YES;
+        }
+    }
+    return NO;
 }
 
 - (os_activity_stream_event_block_t)streamEventHandlerBlock {

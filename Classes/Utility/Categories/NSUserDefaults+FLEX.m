@@ -20,6 +20,8 @@ NSString * const kFLEXDefaultsNetworkObserverLastModeKey = @"com.flex.FLEXNetwor
 NSString * const kFLEXDefaultsNetworkHostDenylistKey = @"com.flipboard.FLEX.network_host_denylist";
 NSString * const kFLEXDefaultsDisableOSLogForceASLKey = @"com.flipboard.FLEX.try_disable_os_log";
 NSString * const kFLEXDefaultsAPNSCaptureEnabledKey = @"com.flipboard.FLEX.capture_apns";
+NSString * const kFLEXDefaultsHideFLEXLogMessagesKey = @"com.flipboard.FLEX.hide_flex_log_messages";
+NSString * const kFLEXDefaultsHideUINoiseLogMessagesKey = @"com.flipboard.FLEX.hide_ui_noise_log_messages";
 NSString * const kFLEXDefaultsRegisterJSONExplorerKey = @"com.flipboard.FLEX.view_json_as_object";
 
 #define FLEXDefaultsPathForFile(name) ({ \
@@ -122,6 +124,30 @@ NSString * const kFLEXDefaultsRegisterJSONExplorerKey = @"com.flipboard.FLEX.vie
         postNotificationName:kFLEXDefaultsiOSPersistentOSLogKey
         object:nil
     ];
+}
+
+- (BOOL)flex_hideFLEXLogMessages {
+    // Defaults to hidden unless the user has explicitly opted out
+    if ([self objectForKey:kFLEXDefaultsHideFLEXLogMessagesKey]) {
+        return [self boolForKey:kFLEXDefaultsHideFLEXLogMessagesKey];
+    }
+    return YES;
+}
+
+- (void)setFlex_hideFLEXLogMessages:(BOOL)hide {
+    [self setBool:hide forKey:kFLEXDefaultsHideFLEXLogMessagesKey];
+}
+
+- (BOOL)flex_hideUINoiseLogMessages {
+    // Defaults to hidden unless the user has explicitly opted out
+    if ([self objectForKey:kFLEXDefaultsHideUINoiseLogMessagesKey]) {
+        return [self boolForKey:kFLEXDefaultsHideUINoiseLogMessagesKey];
+    }
+    return YES;
+}
+
+- (void)setFlex_hideUINoiseLogMessages:(BOOL)hide {
+    [self setBool:hide forKey:kFLEXDefaultsHideUINoiseLogMessagesKey];
 }
 
 #pragma mark Push Notifications

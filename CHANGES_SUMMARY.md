@@ -130,9 +130,23 @@ To test:
   `OSActivityEvent` wrapper instead of reading the legacy activity-stream
   structs directly, which fixes host-app crashes on modern iOS and avoids the
   `<compose failure [corrupt log]>` marker
+  - FLEX's own messages and system UI noise (scrolling, layout, focus,
+    keyboard, and other screen-interaction chatter) are filtered out by
+    default, keeping the stream readable; both filters can be toggled in the
+    log's settings
 - **Instance picker** - method-calling arguments now have an "Instance" mode
   that scans the heap and lists live instances of the argument class and its
   subclasses, so you can pass real objects without digging through the debugger
+  - The picker now surfaces well-known singletons and app objects (app,
+    delegate, key window, root view controller, notification center, defaults,
+    file manager, screen, device, bundle, pasteboard, process info, URL cache)
+    above the heap scan, with a search field to narrow both lists
+  - Object-typed arguments default straight to the instance picker, so the
+    available options are visible immediately
+- **Value pools for `SEL` arguments** - when calling a method or editing a
+  selector-typed property, a "Choose" button now lists every selector available
+  on the target (instance or class methods, including inherited ones) in a
+  searchable picker, instead of requiring free-text entry
 - **Liquid Glass design (iOS 26)** - the explorer toolbar is now a floating
   glass pill (`UIGlassEffect`) with continuous-corner highlights and a
   matching glass caption under the selected-view description; navigation and

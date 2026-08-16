@@ -8,6 +8,7 @@
 
 #import "FLEXArgumentInputStringView.h"
 #import "FLEXRuntimeUtility.h"
+#import <objc/runtime.h>
 
 @implementation FLEXArgumentInputStringView
 
@@ -80,6 +81,49 @@
 }
 
 // TODO: Support using object address for strings, as in the object arg view.
+
++ (BOOL)isSelectorTypeEncoding:(const char *)typeEncoding {
+    if (typeEncoding == NULL) {
+        return NO;
+    }
+    if (typeEncoding[0] == FLEXTypeEncodingSelector) {
+        return YES;
+    }
+    return typeEncoding[0] == FLEXTypeEncodingConst && typeEncoding[1] == FLEXTypeEncodingSelector;
+}
+
++ (NSArray<NSString *> *)selectorNamesForObject:(id)object instanceMethod:(BOOL)instanceMethod {
+    if (!object) {
+        return @[];
+    }
+
+    Class cursor;
+    if (instanceMethod) {
+        // Instance methods live on the class and its superclass chain.
+        cursor = object_isClass(object) ? (Class)object : object_getClass(object);
+    } else {
+        // Class methods live on the metaclass chain.
+        Class metaclass = object_isClass(object) ?
+            object_getClass((Class)object) :
+            object_getClass(object_getClass(object));
+        cursor = metaclass;
+    }
+
+    NSMutableOrderedSet<NSString *> *names = [NSMutableOrderedSet new];
+    while (cursor) {
+        unsigned int count = 0;
+        Method *methods = class_copyMethodList(cursor, &count);
+        for (unsigned int i = 0; i < count; i++) {
+            [names addObject:NSStringFromSelector(method_getName(methods[i]))];
+        }
+        if (methods) {
+            free(methods);
+        }
+        cursor = class_getSuperclass(cursor);
+    }
+
+    return [[names array] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
 
 + (BOOL)supportsObjCType:(const char *)type withCurrentValue:(id)value {
     NSParameterAssert(type);

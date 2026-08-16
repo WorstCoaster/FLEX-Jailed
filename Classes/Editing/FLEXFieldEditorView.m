@@ -27,7 +27,8 @@
     if (self) {
         self.targetDescriptionLabel = [UILabel new];
         self.targetDescriptionLabel.numberOfLines = 0;
-        self.targetDescriptionLabel.font = [[self class] labelFont];
+        self.targetDescriptionLabel.font = [UIFont systemFontOfSize:12];
+        self.targetDescriptionLabel.textColor = FLEXColor.deemphasizedTextColor;
         [self addSubview:self.targetDescriptionLabel];
         
         self.targetDescriptionDivider = [[self class] dividerView];
@@ -35,7 +36,8 @@
         
         self.fieldDescriptionLabel = [UILabel new];
         self.fieldDescriptionLabel.numberOfLines = 0;
-        self.fieldDescriptionLabel.font = [[self class] labelFont];
+        self.fieldDescriptionLabel.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
+        self.fieldDescriptionLabel.textColor = FLEXColor.primaryTextColor;
         [self addSubview:self.fieldDescriptionLabel];
         
         self.fieldDescriptionDivider = [[self class] dividerView];
