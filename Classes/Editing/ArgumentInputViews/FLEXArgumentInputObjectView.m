@@ -8,18 +8,27 @@
 
 #import "FLEXArgumentInputObjectView.h"
 #import "FLEXRuntimeUtility.h"
+#import "FLEXUtility.h"
+#import "FLEXColor.h"
+#import "FLEXObjectPickerViewController.h"
 
 static const CGFloat kSegmentInputMargin = 10;
+static const CGFloat kInstancePickerHeight = 32;
 
 typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
     FLEXArgInputObjectTypeJSON,
-    FLEXArgInputObjectTypeAddress
+    FLEXArgInputObjectTypeAddress,
+    FLEXArgInputObjectTypeInstance
 };
 
 @interface FLEXArgumentInputObjectView ()
 
 @property (nonatomic) UISegmentedControl *objectTypeSegmentControl;
 @property (nonatomic) FLEXArgInputObjectType inputType;
+
+@property (nonatomic) UIButton *instanceButton;
+@property (nonatomic) UILabel *instanceLabel;
+@property (nonatomic) id selectedInstance;
 
 @end
 
@@ -33,22 +42,42 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
         self.inputTextView.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
         self.targetSize = FLEXArgumentInputViewSizeLarge;
 
-        self.objectTypeSegmentControl = [[UISegmentedControl alloc] initWithItems:@[@"Value", @"Address"]];
+        BOOL canPickInstance = [FLEXObjectPickerViewController canPickInstancesOfTypeEncoding:typeEncoding];
+        NSArray<NSString *> *items = canPickInstance ?
+            @[@"Value", @"Address", @"Instance"] :
+            @[@"Value", @"Address"];
+
+        self.objectTypeSegmentControl = [[UISegmentedControl alloc] initWithItems:items];
         [self.objectTypeSegmentControl addTarget:self action:@selector(didChangeType) forControlEvents:UIControlEventValueChanged];
         self.objectTypeSegmentControl.selectedSegmentIndex = 0;
         [self addSubview:self.objectTypeSegmentControl];
 
+        self.instanceButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        [self.instanceButton setTitle:@"Choose instance…" forState:UIControlStateNormal];
+        [self.instanceButton addTarget:self action:@selector(instanceButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.instanceButton];
+
+        self.instanceLabel = [UILabel new];
+        self.instanceLabel.font = [UIFont systemFontOfSize:13];
+        self.instanceLabel.textColor = FLEXColor.deemphasizedTextColor;
+        self.instanceLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        [self addSubview:self.instanceLabel];
+
         self.inputType = [[self class] preferredDefaultTypeForObjCType:typeEncoding withCurrentValue:nil];
         self.objectTypeSegmentControl.selectedSegmentIndex = self.inputType;
+        [self updateSubviewsForInputType];
     }
 
     return self;
 }
 
 - (void)didChangeType {
-    self.inputType = self.objectTypeSegmentControl.selectedSegmentIndex;
+    self.inputType = (FLEXArgInputObjectType)self.objectTypeSegmentControl.selectedSegmentIndex;
+    [self updateSubviewsForInputType];
 
-    if (super.inputValue) {
+    if (self.inputType == FLEXArgInputObjectTypeInstance) {
+        [self updateInstanceControls];
+    } else if (super.inputValue) {
         // Trigger an update to the text field to show
         // the address of the stored object we were given,
         // or to show a JSON representation of the object
@@ -57,6 +86,16 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
         // Clear the text field
         [self populateTextAreaFromValue:nil];
     }
+}
+
+- (void)updateSubviewsForInputType {
+    BOOL isInstance = self.inputType == FLEXArgInputObjectTypeInstance;
+    self.instanceButton.hidden = !isInstance;
+    self.instanceLabel.hidden = !isInstance;
+    self.inputTextView.editable = !isInstance;
+
+    [self setNeedsLayout];
+    [self.superview setNeedsLayout];
 }
 
 - (void)setInputType:(FLEXArgInputObjectType)inputType {
@@ -71,6 +110,9 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
             break;
         case FLEXArgInputObjectTypeAddress:
             self.targetSize = FLEXArgumentInputViewSizeSmall;
+            break;
+        case FLEXArgInputObjectTypeInstance:
+            self.targetSize = FLEXArgumentInputViewSizeDefault;
             break;
     }
 
@@ -89,15 +131,23 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
         case FLEXArgInputObjectTypeAddress:
             self.inputPlaceholderText = @"0x0000deadb33f";
             break;
+        case FLEXArgInputObjectTypeInstance:
+            self.inputPlaceholderText = nil;
+            break;
     }
 
+    [self updateSubviewsForInputType];
     [self setNeedsLayout];
-    [self.superview setNeedsLayout];
 }
 
 - (void)setInputValue:(id)inputValue {
     super.inputValue = inputValue;
-    [self populateTextAreaFromValue:inputValue];
+    if (self.inputType == FLEXArgInputObjectTypeInstance) {
+        self.selectedInstance = inputValue;
+        [self updateInstanceControls];
+    } else {
+        [self populateTextAreaFromValue:inputValue];
+    }
 }
 
 - (id)inputValue {
@@ -114,27 +164,60 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
 
             return nil;
         }
+        case FLEXArgInputObjectTypeInstance:
+            return self.selectedInstance;
     }
 }
 
 - (void)populateTextAreaFromValue:(id)value {
     if (!value) {
         self.inputTextView.text = nil;
+    } else if (self.inputType == FLEXArgInputObjectTypeJSON) {
+        self.inputTextView.text = [FLEXRuntimeUtility editableJSONStringForObject:value];
     } else {
-        if (self.inputType == FLEXArgInputObjectTypeJSON) {
-            self.inputTextView.text = [FLEXRuntimeUtility editableJSONStringForObject:value];
-        } else if (self.inputType == FLEXArgInputObjectTypeAddress) {
-            self.inputTextView.text = [NSString stringWithFormat:@"%p", value];
-        }
+        // Address and Instance modes both display the object pointer
+        self.inputTextView.text = [NSString stringWithFormat:@"%p", value];
     }
 
     // Delegate methods are not called for programmatic changes
     [self textViewDidChange:self.inputTextView];
 }
 
+- (void)updateInstanceControls {
+    if (self.selectedInstance) {
+        self.instanceLabel.text = [NSString stringWithFormat:@"%@  %p",
+            [FLEXRuntimeUtility safeClassNameForObject:self.selectedInstance], self.selectedInstance
+        ];
+    } else {
+        self.instanceLabel.text = @"No instance selected";
+    }
+
+    [self populateTextAreaFromValue:self.selectedInstance];
+}
+
+- (void)instanceButtonTapped:(UIButton *)sender {
+    NSString *className = [FLEXObjectPickerViewController classNameFromTypeEncoding:self.typeEncoding.UTF8String];
+    UIViewController *host = [FLEXUtility viewControllerForView:self];
+
+    FLEXObjectPickerViewController *picker = [FLEXObjectPickerViewController
+        pickerForClassName:className
+        completion:^(id object) {
+            self.selectedInstance = object;
+            [self updateInstanceControls];
+            [self.delegate argumentInputViewValueDidChange:self];
+        }
+    ];
+
+    [host.navigationController pushViewController:picker animated:YES];
+}
+
 - (CGSize)sizeThatFits:(CGSize)size {
     CGSize fitSize = [super sizeThatFits:size];
     fitSize.height += [self.objectTypeSegmentControl sizeThatFits:size].height + kSegmentInputMargin;
+
+    if (self.inputType == FLEXArgInputObjectTypeInstance) {
+        fitSize.height += kInstancePickerHeight + kSegmentInputMargin;
+    }
 
     return fitSize;
 }
@@ -151,13 +234,33 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
         segmentHeight
     );
 
+    if (self.inputType == FLEXArgInputObjectTypeInstance) {
+        CGFloat pickerY = CGRectGetMaxY(self.objectTypeSegmentControl.frame) + kSegmentInputMargin;
+        CGSize buttonSize = [self.instanceButton sizeThatFits:self.frame.size];
+        CGFloat buttonWidth = MIN(buttonSize.width + 24, self.frame.size.width * 0.5);
+
+        self.instanceButton.frame = CGRectMake(0, pickerY, buttonWidth, kInstancePickerHeight);
+        self.instanceLabel.frame = CGRectMake(
+            CGRectGetMaxX(self.instanceButton.frame) + kSegmentInputMargin,
+            pickerY,
+            self.frame.size.width - CGRectGetMaxX(self.instanceButton.frame) - kSegmentInputMargin,
+            kInstancePickerHeight
+        );
+    }
+
     [super layoutSubviews];
 }
 
 - (CGFloat)topInputFieldVerticalLayoutGuide {
     // Our text view is offset from the segmented control
     CGFloat segmentHeight = [self.objectTypeSegmentControl sizeThatFits:self.frame.size].height;
-    return segmentHeight + super.topInputFieldVerticalLayoutGuide + kSegmentInputMargin;
+    CGFloat guide = segmentHeight + super.topInputFieldVerticalLayoutGuide + kSegmentInputMargin;
+
+    if (self.inputType == FLEXArgInputObjectTypeInstance) {
+        guide += kInstancePickerHeight + kSegmentInputMargin;
+    }
+
+    return guide;
 }
 
 + (BOOL)supportsObjCType:(const char *)type withCurrentValue:(id)value {

@@ -9,6 +9,7 @@
 #import "FLEXOSLogController.h"
 #import "NSUserDefaults+FLEX.h"
 #include <dlfcn.h>
+#include <string.h>
 #include "ActivityStreamAPI.h"
 
 static os_activity_stream_for_pid_t OSActivityStreamForPID;
@@ -168,12 +169,7 @@ static uint8_t (*OSLogGetType)(void *);
             NSDate *date = [NSDate dateWithTimeIntervalSince1970:log_message->tv_gmt.tv_sec];
             
             // Get log message text
-            // https://github.com/limneos/oslog/issues/1
-            // https://github.com/FLEXTool/FLEX/issues/564
-            const char *messageText = OSLogCopyFormattedMessage(log_message) ?: "";
-
-            // move messageText from stack to heap
-            NSString *msg = [NSString stringWithUTF8String:messageText];
+            NSString *msg = [self messageTextForLogMessage:log_message];
 
             dispatch_async(dispatch_get_main_queue(), ^{
                 FLEXSystemLogMessage *message = [FLEXSystemLogMessage logMessageFromDate:date text:msg];
@@ -188,6 +184,26 @@ static uint8_t (*OSLogGetType)(void *);
     }
     
     return YES;
+}
+
+/// -[os_log_copy_formatted_message] is private SPI that frequently fails to
+/// recompose a message on modern iOS (16+), returning
+/// "<compose failure [corrupt log]>". When that happens, fall back to the raw
+/// format string so the log row is still useful.
+/// See https://github.com/FLEXTool/FLEX/issues/717 and
+/// https://github.com/FLEXTool/FLEX/issues/564
+- (NSString *)messageTextForLogMessage:(os_log_message_t)log_message {
+    const char *formatted = OSLogCopyFormattedMessage(log_message);
+    if (formatted != NULL && formatted[0] != '\0' &&
+        strncmp(formatted, "<compose failure", 16) != 0) {
+        return [NSString stringWithUTF8String:formatted];
+    }
+
+    if (log_message->format != NULL) {
+        return [NSString stringWithUTF8String:log_message->format];
+    }
+
+    return @"";
 }
 
 - (os_activity_stream_event_block_t)streamEventHandlerBlock {
