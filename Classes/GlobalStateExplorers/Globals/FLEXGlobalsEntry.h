@@ -83,6 +83,12 @@ typedef void (^FLEXGlobalsEntryRowAction)(__kindof UITableViewController * _Nonn
 @property (nonatomic, readonly, nonnull)  FLEXGlobalsEntryNameFuture entryNameFuture;
 @property (nonatomic, readonly, nullable) FLEXGlobalsEntryViewControllerFuture viewControllerFuture;
 @property (nonatomic, readonly, nullable) FLEXGlobalsEntryRowAction rowAction;
+/// An SF Symbol name to display as the row's icon (iOS 13+).
+/// Rows without an icon render as plain text.
+@property (nonatomic, nullable, copy) NSString *iconName;
+
+/// The SF Symbol name for a given globals row, if any.
++ (nullable NSString *)flex_symbolNameForRow:(FLEXGlobalsRow)row;
 
 + (instancetype)entryWithEntry:(Class<FLEXGlobalsEntry>)entry row:(FLEXGlobalsRow)row;
 

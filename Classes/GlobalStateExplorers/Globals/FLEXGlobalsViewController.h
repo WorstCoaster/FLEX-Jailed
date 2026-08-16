@@ -11,6 +11,9 @@
 
 typedef NS_ENUM(NSUInteger, FLEXGlobalsSectionKind) {
     FLEXGlobalsSectionCustom,
+    /// One-tap developer actions: memory warning,
+    /// idle timer, suspend, copy app info
+    FLEXGlobalsSectionQuickActions,
     /// NSProcessInfo, Network history, system log,
     /// heap, address explorer, libraries, app classes
     FLEXGlobalsSectionProcessAndEvents,

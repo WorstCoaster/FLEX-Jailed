@@ -117,47 +117,47 @@ static NSMutableDictionary<id<NSCopying>, Class> *classesToRegisteredSections = 
 + (NSString *)globalsEntryTitle:(FLEXGlobalsRow)row  {
     switch (row) {
         case FLEXGlobalsRowAppDelegate:
-            return @"🎟  App Delegate";
+            return @"App Delegate";
         case FLEXGlobalsRowKeyWindow:
-            return @"🔑  Key Window";
+            return @"Key Window";
         case FLEXGlobalsRowRootViewController:
-            return @"🌴  Root View Controller";
+            return @"Root View Controller";
         case FLEXGlobalsRowProcessInfo:
-            return @"🚦  NSProcessInfo.processInfo";
+            return @"NSProcessInfo.processInfo";
         case FLEXGlobalsRowUserDefaults:
-            return @"💾  Preferences";
+            return @"Preferences";
         case FLEXGlobalsRowMainBundle:
-            return @"📦  NSBundle.mainBundle";
+            return @"NSBundle.mainBundle";
         case FLEXGlobalsRowApplication:
-            return @"🚀  UIApplication.sharedApplication";
+            return @"UIApplication.sharedApplication";
         case FLEXGlobalsRowMainScreen:
-            return @"💻  UIScreen.mainScreen";
+            return @"UIScreen.mainScreen";
         case FLEXGlobalsRowCurrentDevice:
-            return @"📱  UIDevice.currentDevice";
+            return @"UIDevice.currentDevice";
         case FLEXGlobalsRowPasteboard:
-            return @"📋  UIPasteboard.generalPasteboard";
+            return @"UIPasteboard.generalPasteboard";
         case FLEXGlobalsRowURLSession:
-            return @"📡  NSURLSession.sharedSession";
+            return @"NSURLSession.sharedSession";
         case FLEXGlobalsRowURLCache:
-            return @"⏳  NSURLCache.sharedURLCache";
+            return @"NSURLCache.sharedURLCache";
         case FLEXGlobalsRowNotificationCenter:
-            return @"🔔  NSNotificationCenter.defaultCenter";
+            return @"NSNotificationCenter.defaultCenter";
         case FLEXGlobalsRowMenuController:
-            return @"📎  UIMenuController.sharedMenuController";
+            return @"UIMenuController.sharedMenuController";
         case FLEXGlobalsRowFileManager:
-            return @"🗄  NSFileManager.defaultManager";
+            return @"NSFileManager.defaultManager";
         case FLEXGlobalsRowTimeZone:
-            return @"🌎  NSTimeZone.systemTimeZone";
+            return @"NSTimeZone.systemTimeZone";
         case FLEXGlobalsRowLocale:
-            return @"🗣  NSLocale.currentLocale";
+            return @"NSLocale.currentLocale";
         case FLEXGlobalsRowCalendar:
-            return @"📅  NSCalendar.currentCalendar";
+            return @"NSCalendar.currentCalendar";
         case FLEXGlobalsRowMainRunLoop:
-            return @"🏃🏻‍♂️  NSRunLoop.mainRunLoop";
+            return @"NSRunLoop.mainRunLoop";
         case FLEXGlobalsRowMainThread:
-            return @"🧵  NSThread.mainThread";
+            return @"NSThread.mainThread";
         case FLEXGlobalsRowOperationQueue:
-            return @"📚  NSOperationQueue.mainQueue";
+            return @"NSOperationQueue.mainQueue";
         default: return nil;
     }
 }

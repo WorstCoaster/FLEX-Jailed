@@ -115,6 +115,24 @@ To test:
 - **Error Handling**: Catches exceptions to prevent app crashes
 - **Logging**: Logs success/failure for debugging injection issues
 
+## Modernisation
+
+- **SF Symbols everywhere** - all emoji UI icons replaced with native SF Symbols (iOS 13+)
+  - Every globals-menu row now shows a themed SF Symbol icon
+  - Database table sort arrows use `arrow.up` / `arrow.down` symbol images
+  - The FLEX home screen uses a custom title view with a wrench symbol
+- **Quick Actions** - new section at the top of the FLEX menu for on-the-go debugging:
+  - Simulate Memory Warning (triggers the private `_performMemoryWarning`)
+  - Toggle Idle Timer (prevent/allow screen auto-lock, with state feedback)
+  - Suspend App (backgrounds the app immediately)
+  - Copy Bundle ID and Copy App Version + build to the pasteboard
+- **System log** - messages the private `os_log` compose API can't rebuild
+  (the `<compose failure [corrupt log]>` marker) now fall back to the raw
+  format string so entries stay readable
+- **Instance picker** - method-calling arguments now have an "Instance" mode
+  that scans the heap and lists live instances of the argument class and its
+  subclasses, so you can pass real objects without digging through the debugger
+
 ## Notes
 
 - This modification does not break existing FLEX functionality

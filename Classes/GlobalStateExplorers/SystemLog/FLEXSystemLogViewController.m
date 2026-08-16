@@ -239,7 +239,7 @@ static BOOL my_os_log_shim_enabled(void *addr) {
 #pragma mark - FLEXGlobalsEntry
 
 + (NSString *)globalsEntryTitle:(FLEXGlobalsRow)row {
-    return @"⚠️  System Log";
+    return @"System Log";
 }
 
 + (UIViewController *)globalsEntryViewController:(FLEXGlobalsRow)row {

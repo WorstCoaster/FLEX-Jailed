@@ -7,6 +7,7 @@
 //
 
 #import "FLEXGlobalsSection.h"
+#import "FLEXColor.h"
 #import "NSArray+FLEX.h"
 #import "UIFont+FLEX.h"
 
@@ -71,7 +72,20 @@
 - (void)configureCell:(__kindof UITableViewCell *)cell forRow:(NSInteger)row {
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     cell.textLabel.font = UIFont.flex_defaultTableCellFont;
-    cell.textLabel.text = self.rows[row].entryNameFuture();
+    FLEXGlobalsEntry *entry = self.rows[row];
+    cell.textLabel.text = entry.entryNameFuture();
+
+    // SF Symbol icons (iOS 13+); plain rows render without an icon
+    if (@available(iOS 13.0, *)) {
+        NSString *symbolName = entry.iconName;
+        UIImage *icon = symbolName.length ? [UIImage systemImageNamed:symbolName] : nil;
+        cell.imageView.image = icon;
+        cell.imageView.tintColor = FLEXColor.iconColor;
+        // Match the text size; SF Symbol images are larger by default
+        cell.imageView.transform = CGAffineTransformMakeScale(0.85, 0.85);
+    } else {
+        cell.imageView.image = nil;
+    }
 }
 
 @end

@@ -15,7 +15,7 @@ static const CGFloat kMargin = 5;
 static const CGFloat kArrowWidth = 20;
 
 @interface FLEXTableColumnHeader ()
-@property (nonatomic, readonly) UILabel *arrowLabel;
+@property (nonatomic, readonly) UIImageView *arrowView;
 @property (nonatomic, readonly) UIView *lineView;
 @end
 
@@ -30,9 +30,9 @@ static const CGFloat kArrowWidth = 20;
         _titleLabel.font = UIFont.flex_defaultTableCellFont;
         [self addSubview:_titleLabel];
         
-        _arrowLabel = [UILabel new];
-        _arrowLabel.font = UIFont.flex_defaultTableCellFont;
-        [self addSubview:_arrowLabel];
+        _arrowView = [UIImageView new];
+        _arrowView.tintColor = FLEXColor.iconColor;
+        [self addSubview:_arrowView];
         
         _lineView = [UIView new];
         _lineView.backgroundColor = FLEXColor.hairlineColor;
@@ -45,16 +45,19 @@ static const CGFloat kArrowWidth = 20;
 - (void)setSortType:(FLEXTableColumnHeaderSortType)type {
     _sortType = type;
     
-    switch (type) {
-        case FLEXTableColumnHeaderSortTypeNone:
-            _arrowLabel.text = @"";
-            break;
-        case FLEXTableColumnHeaderSortTypeAsc:
-            _arrowLabel.text = @"⬆️";
-            break;
-        case FLEXTableColumnHeaderSortTypeDesc:
-            _arrowLabel.text = @"⬇️";
-            break;
+    // SF Symbol sort arrows (iOS 13+); older OSes simply show no arrow
+    if (@available(iOS 13.0, *)) {
+        switch (type) {
+            case FLEXTableColumnHeaderSortTypeNone:
+                _arrowView.image = nil;
+                break;
+            case FLEXTableColumnHeaderSortTypeAsc:
+                _arrowView.image = [UIImage systemImageNamed:@"arrow.up"];
+                break;
+            case FLEXTableColumnHeaderSortTypeDesc:
+                _arrowView.image = [UIImage systemImageNamed:@"arrow.down"];
+                break;
+        }
     }
 }
 
@@ -64,7 +67,7 @@ static const CGFloat kArrowWidth = 20;
     CGSize size = self.frame.size;
     
     self.titleLabel.frame = CGRectMake(kMargin, 0, size.width - kArrowWidth - kMargin, size.height);
-    self.arrowLabel.frame = CGRectMake(size.width - kArrowWidth, 0, kArrowWidth, size.height);
+    self.arrowView.frame = CGRectMake(size.width - kArrowWidth, 0, kArrowWidth, size.height);
     self.lineView.frame = CGRectMake(size.width - 1, 2, FLEXPointsToPixels(1), size.height - 4);
 }
 

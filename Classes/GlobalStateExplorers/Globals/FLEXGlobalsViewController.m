@@ -42,6 +42,8 @@
     switch (section) {
         case FLEXGlobalsSectionCustom:
             return @"Custom Additions";
+        case FLEXGlobalsSectionQuickActions:
+            return @"Quick Actions";
         case FLEXGlobalsSectionProcessAndEvents:
             return @"Process and Events";
         case FLEXGlobalsSectionAppShortcuts:
@@ -112,6 +114,7 @@
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         NSDictionary<NSNumber *, NSArray<FLEXGlobalsEntry *> *> *rowsBySection = @{
+            @(FLEXGlobalsSectionQuickActions) : [self quickActionEntries],
             @(FLEXGlobalsSectionProcessAndEvents) : @[
                 [self globalsEntryForRow:FLEXGlobalsRowNetworkHistory],
                 [self globalsEntryForRow:FLEXGlobalsRowSystemLog],
@@ -162,12 +165,85 @@
 }
 
 
+#pragma mark - Quick Actions
+
++ (FLEXGlobalsEntry *)quickActionWithTitle:(NSString *)title
+                                      icon:(NSString *)symbolName
+                                    action:(FLEXGlobalsEntryRowAction)action {
+    FLEXGlobalsEntry *entry = [FLEXGlobalsEntry entryWithNameFuture:^{
+        return title;
+    } action:action];
+    entry.iconName = symbolName;
+
+    return entry;
+}
+
++ (NSArray<FLEXGlobalsEntry *> *)quickActionEntries {
+    return @[
+        [self quickActionWithTitle:@"Simulate Memory Warning"
+                              icon:@"exclamationmark.triangle"
+                            action:^(__kindof UITableViewController *host) {
+            [UIApplication.sharedApplication performSelector:NSSelectorFromString(@"_performMemoryWarning")];
+        }],
+        [self quickActionWithTitle:@"Toggle Idle Timer"
+                              icon:@"sun.max"
+                            action:^(__kindof UITableViewController *host) {
+            UIApplication *app = UIApplication.sharedApplication;
+            app.idleTimerDisabled = !app.idleTimerDisabled;
+            NSString *state = app.idleTimerDisabled
+                ? @"Screen will no longer auto-lock"
+                : @"Screen auto-lock restored";
+            UIAlertController *alert = [UIAlertController
+                alertControllerWithTitle:@"Idle Timer"
+                message:state
+                preferredStyle:UIAlertControllerStyleAlert
+            ];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [host presentViewController:alert animated:YES completion:nil];
+        }],
+        [self quickActionWithTitle:@"Suspend App"
+                              icon:@"pause.circle"
+                            action:^(__kindof UITableViewController *host) {
+            [UIApplication.sharedApplication performSelector:NSSelectorFromString(@"suspend")];
+        }],
+        [self quickActionWithTitle:@"Copy Bundle ID"
+                              icon:@"doc.on.doc"
+                            action:^(__kindof UITableViewController *host) {
+            UIPasteboard.generalPasteboard.string = NSBundle.mainBundle.bundleIdentifier;
+        }],
+        [self quickActionWithTitle:@"Copy App Version"
+                              icon:@"number"
+                            action:^(__kindof UITableViewController *host) {
+            NSDictionary *info = NSBundle.mainBundle.infoDictionary;
+            NSString *version = info[@"CFBundleShortVersionString"];
+            NSString *build = info[@"CFBundleVersion"];
+            NSString *text = version ? [NSString stringWithFormat:@"%@ (%@)", version, build ?: @""] : @"";
+            UIPasteboard.generalPasteboard.string = text;
+        }],
+    ];
+}
+
 #pragma mark - Overrides
 
 - (void)viewDidLoad {
     [super viewDidLoad];
 
-    self.title = @"💪  FLEX";
+    if (@available(iOS 13.0, *)) {
+        UIImageView *iconView = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"wrench"]];
+        iconView.tintColor = self.view.tintColor;
+        iconView.contentMode = UIViewContentModeScaleAspectFit;
+        UILabel *titleLabel = [UILabel new];
+        titleLabel.text = @"FLEX";
+        titleLabel.font = [UIFont boldSystemFontOfSize:17];
+        UIStackView *titleView = [[UIStackView alloc] initWithArrangedSubviews:@[iconView, titleLabel]];
+        titleView.axis = UILayoutConstraintAxisHorizontal;
+        titleView.spacing = 6;
+        titleView.alignment = UIStackViewAlignmentCenter;
+        self.navigationItem.titleView = titleView;
+    } else {
+        self.title = @"FLEX";
+    }
+    
     self.showsSearchBar = YES;
     self.searchBarDebounceInterval = kFLEXDebounceInstant;
     self.navigationItem.backBarButtonItem = [UIBarButtonItem flex_backItemWithTitle:@"Back"];

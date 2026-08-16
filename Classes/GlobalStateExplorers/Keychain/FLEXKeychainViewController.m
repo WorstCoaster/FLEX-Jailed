@@ -181,7 +181,7 @@
 #pragma mark - FLEXGlobalsEntry
 
 + (NSString *)globalsEntryTitle:(FLEXGlobalsRow)row {
-    return @"🔑  Keychain";
+    return @"Keychain";
 }
 
 + (UIViewController *)globalsEntryViewController:(FLEXGlobalsRow)row {
