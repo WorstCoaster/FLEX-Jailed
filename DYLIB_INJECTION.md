@@ -15,7 +15,23 @@ FLEX has been modified to support injection as a dylib. When injected, FLEX auto
 
 ## Building the Dylib
 
-### Option 1: Using Xcode (Recommended)
+### Option 0: Using the build script (Recommended)
+
+The repo ships a modernized build script that compiles all of `Classes/` directly with clang, in parallel:
+
+```bash
+./build_dylib.sh              # arm64 iOS device (default, min iOS 13.0)
+./build_dylib.sh arm64e       # arm64e device slice (A12+)
+./build_dylib.sh simulator    # universal simulator dylib (arm64 + x86_64)
+./build_dylib.sh --no-sign    # skip code signing (sign later, e.g. in CI)
+```
+
+- Output: `Build/FLEX.dylib` (universal for simulator builds via `lipo`)
+- Deployment target defaults to iOS 13.0; override with `MIN_IOS_VERSION=15.0 ./build_dylib.sh`
+- Code signing uses an `Apple Development` certificate automatically, or pass `--sign "Identity"`
+- Set `FLEX_JOBS` to control parallelism (defaults to CPU core count)
+
+### Option 1: Using Xcode
 
 1. Open `FLEX.xcodeproj` in Xcode
 
@@ -81,7 +97,7 @@ A Makefile can be created for automated building. See `Makefile.dylib` (if provi
 
 3. Inject FLEX:
    ```bash
-   frida -U -f com.example.app -l FLEXDylib.framework/FLEXDylib
+   frida -U -f com.example.app -l Build/FLEX.dylib
    ```
 
 ### Method 2: Using Other Injection Tools

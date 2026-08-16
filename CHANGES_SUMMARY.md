@@ -61,6 +61,31 @@ FLEX has been successfully modified to support injection as a dynamic library (d
 - It gracefully falls back if Substrate is not available
 - No jailbreak-specific code was added; only non-jailbreak compatible code
 
+## Modernisation (2026)
+
+### Build script (`build_dylib.sh`)
+- **Universal simulator builds**: `./build_dylib.sh simulator` now produces a single dylib with both `arm64` (Apple Silicon) and `x86_64` (Intel) slices via `lipo`, instead of forcing x86_64
+- **arm64e support**: `./build_dylib.sh arm64e` builds a slice for A12+ devices that run arm64e
+- **Explicit target triples** (`arm64-apple-ios13.0[-simulator]`) instead of relying on arch/SDK inference
+- **Parallel compilation**: source files compile across all CPU cores (`FLEX_JOBS` to override) — ~176 files no longer compile serially
+- **Modern defaults**: minimum iOS bumped from 9.0 to **13.0** (`MIN_IOS_VERSION` env override), warning flags tuned for current clang (`-Wno-unguarded-availability-new`, `-Wno-nullability-completeness`), `-dead_strip` at link time
+- **Flexible signing**: `--sign "Identity"`, `--no-sign`, or automatic `Apple Development` certificate discovery
+- **Robust builds**: object files mirror the source tree (no basename collisions), per-file compile logs, reliable error reporting (the old `PIPESTATUS`/`grep` pipe trick is gone)
+
+### Entry point (`Classes/FLEXDylibEntry.m`)
+- Initialization wrapped in `dispatch_once`, so loading the dylib twice can never double-swizzle `UIApplication`
+- Block-based `NSTimer` API (iOS 10+) instead of target/selector timers
+- Works unchanged with scene-based (iOS 13+) apps — all touches still flow through `-[UIApplication sendEvent:]`
+
+### FLEX core compatibility
+- Replaced all direct `UIApplication.sharedApplication.keyWindow` access (deprecated since iOS 13, returns nil in multi-scene apps) with the scene-aware `FLEXUtility.appKeyWindow` in: `FLEXTableViewController`, `FLEXExplorerViewController`, `FLEXWindowManagerController`, `FLEXManager+Extensibility`, `FLEXColor`
+
+### Packaging & CI
+- `Package.swift` modernized: swift-tools-version 5.9, minimum iOS 13 (was conditional 10/11/12)
+- Added `.github/workflows/build-dylib.yml` — macOS GitHub Actions build producing `FLEX-device.dylib` and `FLEX-simulator.dylib` artifacts
+- Removed dead `.travis.yml` (referenced a workspace that doesn't exist; Travis CI is retired)
+- Note: `FLEX.xcodeproj/project.pbxproj` deployment targets were left as-is (upstream 9.0/10.3); the dylib build path is fully controlled by `build_dylib.sh`
+
 ## Next Steps
 
 To use this:
@@ -68,7 +93,7 @@ To use this:
 1. **Build the dylib** (see `DYLIB_INJECTION.md` or `QUICKSTART_DYLIB.md`)
 2. **Code sign** the dylib with your Apple Developer certificate
 3. **Inject** using Frida or another injection tool
-4. **Debug** - FLEX will appear automatically!
+4. **Debug** - hold three fingers for 0.5s to toggle FLEX!
 
 ## Testing
 

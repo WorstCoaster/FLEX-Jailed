@@ -1,16 +1,41 @@
 #!/bin/bash
+# Build script for FLEX dylib injection (modernized)
+# Compiles FLEX directly with clang into an injectable dynamic library.
+#
+# Usage:
+#   ./build_dylib.sh [mode] [--sign "Identity"] [--no-sign]
+#
+# Modes:
+#   arm64       iOS device, arm64            (default)
+#   arm64e      iOS device, arm64e (A12+)    (optional, needs matching signing)
+#   simulator   Universal simulator dylib (arm64 + x86_64) via lipo
+#   x86_64      Legacy Intel-only simulator slice
+#
+# Environment:
+#   MIN_IOS_VERSION   minimum iOS deployment version (default 13.0)
+#   FLEX_JOBS         parallel compile jobs      (default: CPU core count)
+#
+# Examples:
+#   ./build_dylib.sh                       # device arm64
+#   ./build_dylib.sh arm64e                # device arm64e (A12+)
+#   ./build_dylib.sh simulator             # universal simulator dylib
+#   ./build_dylib.sh arm64 --no-sign       # device, skip code signing
+#   ./build_dylib.sh arm64 --sign "Apple Development: Jane Doe"
 
-# Build script for FLEX dylib injection
-# This script builds FLEX as a dynamic library directly using clang
+set -euo pipefail
 
-set -e
-
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 BUILD_DIR="$PROJECT_DIR/Build"
-OBJ_DIR="$BUILD_DIR/Objects"
+OBJ_ROOT="$BUILD_DIR/Objects"
 DYLIB_NAME="FLEX.dylib"
 OUTPUT_DYLIB="$BUILD_DIR/$DYLIB_NAME"
+ENTITLEMENTS="$PROJECT_DIR/entitlements.plist"
+
+# Defaults (override via environment)
+MIN_IOS_VERSION="${MIN_IOS_VERSION:-13.0}"
+JOBS="${FLEX_JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
+JOBS=$(( JOBS < 1 ? 1 : JOBS ))
 
 # Colors for output
 RED='\033[0;31m'
@@ -19,87 +44,102 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}Building FLEX as injectable dylib...${NC}"
+usage() {
+    echo "Usage: $0 [arm64|arm64e|simulator|x86_64] [--sign \"Identity\"] [--no-sign]"
+    echo "  MIN_IOS_VERSION env var overrides the deployment target (default 13.0)"
+    exit 0
+}
 
-# Check if we're on macOS with Xcode
+# ---------------------------------------------------------------- args
+
+MODE="arm64"
+SIGN_IDENTITY=""
+NO_SIGN=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --sign)      SIGN_IDENTITY="${2:?--sign requires a code signing identity}"; shift 2 ;;
+        --no-sign)   NO_SIGN=1; shift ;;
+        -h|--help)   usage ;;
+        *)           MODE="$1"; shift ;;
+    esac
+done
+
+case "$MODE" in
+    arm64|arm64e)
+        TARGET_SDK="iphoneos"
+        ARCHS=("$MODE")
+        ;;
+    simulator)
+        TARGET_SDK="iphonesimulator"
+        ARCHS=(arm64 x86_64)
+        ;;
+    x86_64)
+        TARGET_SDK="iphonesimulator"
+        ARCHS=(x86_64)
+        ;;
+    *)
+        echo -e "${RED}Unknown mode: $MODE${NC}"
+        usage
+        ;;
+esac
+
+echo -e "${GREEN}Building FLEX as injectable dylib${NC} (mode: $MODE, min iOS: $MIN_IOS_VERSION, jobs: $JOBS)"
+
+# ---------------------------------------------------------------- toolchain
+
 if ! command -v xcrun &> /dev/null; then
     echo -e "${RED}Error: xcrun not found. Please install Xcode.${NC}"
     exit 1
 fi
 
-# Get SDK path
-SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null)
-if [ -z "$SDK_PATH" ]; then
-    echo -e "${RED}Error: Could not find iOS SDK.${NC}"
+CC="$(xcrun --find clang)"
+
+SDK_PATH="$(xcrun --sdk "$TARGET_SDK" --show-sdk-path 2>/dev/null || true)"
+if [[ -z "$SDK_PATH" ]]; then
+    echo -e "${RED}Error: Could not find the $TARGET_SDK SDK. Install Xcode or run 'sudo xcode-select -s'.${NC}"
     exit 1
 fi
+echo -e "${BLUE}Using $TARGET_SDK SDK: $SDK_PATH${NC}"
 
-echo -e "${BLUE}Using SDK: $SDK_PATH${NC}"
+# ---------------------------------------------------------------- sources
 
-# Detect architecture (default to arm64 for device, or x86_64 for simulator)
-ARCH="${1:-arm64}"
-if [ "$ARCH" = "simulator" ] || [ "$ARCH" = "x86_64" ]; then
-    ARCH="x86_64"
-    SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null)
-    echo -e "${YELLOW}Building for iOS Simulator (x86_64)${NC}"
-else
-    ARCH="arm64"
-    echo -e "${YELLOW}Building for iOS Device (arm64)${NC}"
-fi
-
-# Clean previous builds
-echo -e "${BLUE}Cleaning previous builds...${NC}"
-rm -rf "$BUILD_DIR"
-mkdir -p "$OBJ_DIR"
-
-# Find all source files
 echo -e "${BLUE}Collecting source files...${NC}"
 SOURCES=()
 while IFS= read -r -d '' file; do
     SOURCES+=("$file")
 done < <(find "$PROJECT_DIR/Classes" -type f \( -name "*.m" -o -name "*.mm" -o -name "*.c" \) ! -path "*/Headers/*" -print0)
 
-# Check if dylib entry point is included
-HAS_ENTRY=false
-for src in "${SOURCES[@]}"; do
-    if [[ "$src" == *"FLEXDylibEntry.m" ]]; then
-        HAS_ENTRY=true
-        break
-    fi
-done
-
-if [ "$HAS_ENTRY" = true ]; then
-    echo -e "${GREEN}Found FLEXDylibEntry.m${NC}"
-else
-    if [ -f "$PROJECT_DIR/Classes/FLEXDylibEntry.m" ]; then
+# Make sure the dylib entry point is included
+if ! printf '%s\n' "${SOURCES[@]}" | grep -q "FLEXDylibEntry.m"; then
+    if [[ -f "$PROJECT_DIR/Classes/FLEXDylibEntry.m" ]]; then
         SOURCES+=("$PROJECT_DIR/Classes/FLEXDylibEntry.m")
         echo -e "${GREEN}Added FLEXDylibEntry.m${NC}"
     else
-        echo -e "${RED}Warning: FLEXDylibEntry.m not found!${NC}"
+        echo -e "${RED}Warning: FLEXDylibEntry.m not found — the dylib will not auto-initialize!${NC}"
     fi
 fi
-
 echo -e "${GREEN}Found ${#SOURCES[@]} source files${NC}"
 
-# Compiler settings
-MIN_IOS_VERSION="9.0"
-CC="$(xcrun --find clang)"
-CFLAGS=(
-    -arch "$ARCH"
+# ---------------------------------------------------------------- flags
+
+COMMON_FLAGS=(
     -isysroot "$SDK_PATH"
     -mios-version-min="$MIN_IOS_VERSION"
     -fobjc-arc
     -fobjc-weak
     -fmodules
-    -Wno-unsupported-availability-guard
-    -Wno-deprecated-declarations
-    -Wno-strict-prototypes
+    -fPIC
     -O2
     -g
-    -fPIC
+    # FLEX targets old APIs by design; silence the noise for a debug tool
+    -Wno-unsupported-availability-guard
+    -Wno-unguarded-availability-new
+    -Wno-deprecated-declarations
+    -Wno-strict-prototypes
+    -Wno-nullability-completeness
 )
 
-# Framework and library paths
 FRAMEWORKS=(
     -framework Foundation
     -framework UIKit
@@ -117,85 +157,160 @@ LIBS=(
     -lc++
 )
 
-# Include directories - add all subdirectories
 INCLUDES=(-I"$SDK_PATH/usr/include")
 while IFS= read -r -d '' dir; do
     INCLUDES+=(-I"$dir")
 done < <(find "$PROJECT_DIR/Classes" -type d -print0)
 
-# Compile all source files
-echo -e "${BLUE}Compiling source files...${NC}"
-OBJECT_FILES=()
-FAILED=0
+# ---------------------------------------------------------------- compile
 
-for src in "${SOURCES[@]}"; do
-    obj_file="$OBJ_DIR/$(basename "$src" | sed 's/\.[^.]*$/.o/')"
-    OBJECT_FILES+=("$obj_file")
-    
-    # Determine if it's C++ or Objective-C++
-    if [[ "$src" == *.mm ]] || [[ "$src" == *.cpp ]]; then
-        LANG_FLAGS=(-x objective-c++ -std=gnu++11)
-    elif [[ "$src" == *.c ]]; then
-        LANG_FLAGS=(-x c)
-    else
-        LANG_FLAGS=(-x objective-c)
-    fi
-    
-    echo -e "  Compiling: $(basename "$src")"
-    if ! "$CC" "${CFLAGS[@]}" "${LANG_FLAGS[@]}" "${INCLUDES[@]}" -c "$src" -o "$obj_file" 2>&1 | grep -E "(error|Error)" || true; then
-        if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo -e "${RED}Failed to compile: $src${NC}"
-            FAILED=$((FAILED + 1))
+compile_arch() {
+    local arch="$1"
+    local sdk="$2"
+    local target="$3"
+    local objdir="$OBJ_ROOT/$arch"
+    local logdir="$objdir/logs"
+    local cflags_file="$objdir/cflags.txt"
+    local includes_file="$objdir/includes.txt"
+
+    echo -e "${BLUE}Compiling $arch (target: $target)...${NC}"
+    rm -rf "$objdir"
+    mkdir -p "$logdir"
+
+    printf '%s\n' "${COMMON_FLAGS[@]}" -target "$target" > "$cflags_file"
+    printf '%s\n' "${INCLUDES[@]}" > "$includes_file"
+
+    local jobs_file="$objdir/jobs.txt"
+    : > "$jobs_file"
+
+    for src in "${SOURCES[@]}"; do
+        local rel="${src#$PROJECT_DIR/}"
+        local obj="$objdir/${rel%.*}.o"
+        local lang="objc"
+        [[ "$src" == *.mm ]] && lang="objcxx"
+        [[ "$src" == *.c ]] && lang="c"
+        mkdir -p "$(dirname "$obj")"
+        echo "$src|$obj|$lang" >> "$jobs_file"
+    done
+
+    export CC objdir logdir
+
+    if ! xargs -P "$JOBS" -n1 bash -c '
+        IFS="|" read -r src obj lang <<< "$1"
+        local_flags=()
+        while IFS= read -r f; do local_flags+=("$f"); done < "$objdir/cflags.txt"
+        local_includes=()
+        while IFS= read -r f; do local_includes+=("$f"); done < "$objdir/includes.txt"
+        case "$lang" in
+            objcxx) lang_flags=(-x objective-c++ -std=gnu++14) ;;
+            c)      lang_flags=(-x c) ;;
+            *)      lang_flags=(-x objective-c) ;;
+        esac
+        log="$logdir/$(basename "$src").log"
+        if ! "$CC" "${local_flags[@]}" "${lang_flags[@]}" "${local_includes[@]}" \
+             -c "$src" -o "$obj" > "$log" 2>&1; then
+            echo "  FAILED: $src" >&2
+            tail -25 "$log" >&2
+            exit 1
         fi
+    ' _ < "$jobs_file"; then
+        echo -e "${RED}Compilation failed for $arch${NC}"
+        return 1
     fi
+
+    local obj_count
+    obj_count="$(find "$objdir" -name '*.o' | wc -l | tr -d ' ')"
+    echo -e "${GREEN}Compiled $obj_count object files for $arch${NC}"
+    return 0
+}
+
+echo -e "${BLUE}Cleaning previous builds...${NC}"
+rm -rf "$BUILD_DIR"
+mkdir -p "$OBJ_ROOT"
+
+PER_ARCH_DYLIB=()
+for arch in "${ARCHS[@]}"; do
+    case "$arch" in
+        arm64e) target="$arch-apple-ios$MIN_IOS_VERSION" ;;
+        arm64)  target="$arch-apple-ios$MIN_IOS_VERSION" ;;
+        x86_64) target="$arch-apple-ios$MIN_IOS_VERSION-simulator" ;;
+    esac
+    if ! compile_arch "$arch" "$SDK_PATH" "$target"; then
+        exit 1
+    fi
+    PER_ARCH_DYLIB+=("$BUILD_DIR/FLEX-$arch.dylib")
 done
 
-if [ $FAILED -gt 0 ]; then
-    echo -e "${RED}Failed to compile $FAILED file(s)${NC}"
-    exit 1
+# ---------------------------------------------------------------- link
+
+for arch in "${ARCHS[@]}"; do
+    case "$arch" in
+        arm64e) target="$arch-apple-ios$MIN_IOS_VERSION" ;;
+        arm64)  target="$arch-apple-ios$MIN_IOS_VERSION" ;;
+        x86_64) target="$arch-apple-ios$MIN_IOS_VERSION-simulator" ;;
+    esac
+    echo -e "${BLUE}Linking $arch dylib...${NC}"
+    OBJECT_FILES=()
+    while IFS= read -r f; do OBJECT_FILES+=("$f"); done < <(find "$OBJ_ROOT/$arch" -name '*.o' | sort)
+    "$CC" \
+        -target "$target" \
+        -isysroot "$SDK_PATH" \
+        -mios-version-min="$MIN_IOS_VERSION" \
+        -dynamiclib \
+        -install_name "@rpath/$DYLIB_NAME" \
+        -compatibility_version 1.0 \
+        -current_version 1.0 \
+        -Wl,-dead_strip \
+        "${OBJECT_FILES[@]}" \
+        "${FRAMEWORKS[@]}" \
+        "${LIBS[@]}" \
+        -o "$BUILD_DIR/FLEX-$arch.dylib"
+done
+
+# ---------------------------------------------------------------- lipo
+
+if [[ "${#PER_ARCH_DYLIB[@]}" -gt 1 ]]; then
+    echo -e "${BLUE}Creating universal dylib with lipo...${NC}"
+    lipo -create "${PER_ARCH_DYLIB[@]}" -output "$OUTPUT_DYLIB"
+else
+    cp "${PER_ARCH_DYLIB[0]}" "$OUTPUT_DYLIB"
 fi
 
-# Link the dylib
-echo -e "${BLUE}Linking dylib...${NC}"
-"$CC" \
-    -arch "$ARCH" \
-    -isysroot "$SDK_PATH" \
-    -mios-version-min="$MIN_IOS_VERSION" \
-    -dynamiclib \
-    -install_name "@rpath/$DYLIB_NAME" \
-    -compatibility_version 1.0 \
-    -current_version 1.0 \
-    "${OBJECT_FILES[@]}" \
-    "${FRAMEWORKS[@]}" \
-    "${LIBS[@]}" \
-    -o "$OUTPUT_DYLIB"
-
-if [ ! -f "$OUTPUT_DYLIB" ]; then
+if [[ ! -f "$OUTPUT_DYLIB" ]]; then
     echo -e "${RED}Error: Failed to create dylib${NC}"
     exit 1
 fi
 
-# Code sign (optional, but recommended)
-if command -v codesign &> /dev/null; then
-    echo -e "${BLUE}Code signing dylib...${NC}"
-    # Try to find a development certificate
-    CERT=$(security find-identity -v -p codesigning | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)".*/\1/' || echo "")
-    
-    if [ -n "$CERT" ]; then
-        echo -e "${GREEN}Signing with: $CERT${NC}"
-        if [ -f "$PROJECT_DIR/entitlements.plist" ]; then
-            codesign --force --sign "$CERT" --entitlements "$PROJECT_DIR/entitlements.plist" "$OUTPUT_DYLIB" 2>/dev/null || \
-            codesign --force --sign "$CERT" "$OUTPUT_DYLIB" 2>/dev/null || \
-            echo -e "${YELLOW}Warning: Code signing failed, but dylib was created${NC}"
-        else
-            codesign --force --sign "$CERT" "$OUTPUT_DYLIB" 2>/dev/null || \
-            echo -e "${YELLOW}Warning: Code signing failed, but dylib was created${NC}"
+# ---------------------------------------------------------------- codesign
+
+if [[ "$NO_SIGN" != "1" ]]; then
+    if command -v codesign &> /dev/null; then
+        IDENTITY="$SIGN_IDENTITY"
+        if [[ -z "$IDENTITY" ]] && command -v security &> /dev/null; then
+            IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+                | grep "Apple Development" | head -1 \
+                | sed 's/.*"\(.*\)".*/\1/' || true)
         fi
-    else
-        echo -e "${YELLOW}Warning: No code signing certificate found. You may need to sign manually.${NC}"
-        echo -e "${YELLOW}  codesign --force --sign \"Apple Development: Your Name\" --entitlements entitlements.plist \"$OUTPUT_DYLIB\"${NC}"
+
+        if [[ -n "$IDENTITY" ]]; then
+            echo -e "${BLUE}Code signing with: $IDENTITY${NC}"
+            if [[ -f "$ENTITLEMENTS" ]]; then
+                codesign --force --sign "$IDENTITY" --entitlements "$ENTITLEMENTS" "$OUTPUT_DYLIB" \
+                    || echo -e "${YELLOW}Warning: Code signing failed, but the dylib was created.${NC}"
+            else
+                codesign --force --sign "$IDENTITY" "$OUTPUT_DYLIB" \
+                    || echo -e "${YELLOW}Warning: Code signing failed, but the dylib was created.${NC}"
+            fi
+        else
+            echo -e "${YELLOW}No Apple Development certificate found — dylib left unsigned.${NC}"
+            echo -e "${YELLOW}  Sign manually: codesign --force --sign \"Apple Development: Your Name\" --entitlements $ENTITLEMENTS \"$OUTPUT_DYLIB\"${NC}"
+        fi
     fi
+else
+    echo -e "${YELLOW}Skipping code signing (--no-sign)${NC}"
 fi
+
+# ---------------------------------------------------------------- done
 
 echo ""
 echo -e "${GREEN}=========================================="
@@ -204,7 +319,9 @@ echo "==========================================${NC}"
 echo ""
 echo -e "Dylib location: ${GREEN}$OUTPUT_DYLIB${NC}"
 echo -e "Size: $(du -h "$OUTPUT_DYLIB" | cut -f1)"
+echo -e "Slices: $(lipo -info "$OUTPUT_DYLIB" | sed 's/^[^:]*: //')"
 echo ""
 echo -e "To inject with Frida:"
 echo -e "  ${YELLOW}frida -U -f com.example.app -l \"$OUTPUT_DYLIB\"${NC}"
+echo -e "  Hold three fingers for 0.5s to toggle FLEX."
 echo ""

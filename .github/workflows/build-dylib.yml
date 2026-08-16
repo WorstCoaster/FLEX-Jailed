@@ -1,0 +1,44 @@
+name: Build FLEX dylib
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build dylib (${{ matrix.name }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: device
+            arch: arm64
+            file: FLEX-device.dylib
+          - name: simulator
+            arch: simulator
+            file: FLEX-simulator.dylib
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.name }} dylib
+        run: bash build_dylib.sh ${{ matrix.arch }}
+
+      - name: Rename artifact
+        run: cp Build/FLEX.dylib Build/${{ matrix.file }}
+
+      - name: Upload ${{ matrix.name }} dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: flex-dylib-${{ matrix.name }}
+          path: Build/${{ matrix.file }}
+          if-no-files-found: error
+          retention-days: 30
