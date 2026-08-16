@@ -188,13 +188,14 @@
             return;
         }
 
-        // Only touch objects whose isa chain leads to NSString, and never
-        // message a candidate until we've retained it.
-        if (![self class:actualClass isKindOfString]) {
+        // Only touch objects whose isa chain leads to NSString.
+        if (![self isStringClass:actualClass]) {
             return;
         }
 
-        id string = object;
+        // Assign to a typed, strong local so the candidate is retained before
+        // we message it and dot syntax resolves against NSString.
+        NSString *string = (NSString *)object;
         @try {
             if (string.length > 0) {
                 if (string.length > kMaxStringLength) {
@@ -210,7 +211,7 @@
     }];
 }
 
-+ (BOOL)class:(Class)cls isKindOfString {
++ (BOOL)isStringClass:(Class)cls {
     static Class stringClass = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
