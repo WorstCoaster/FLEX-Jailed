@@ -9,7 +9,7 @@ enum FLEXBuildOptions {
 
 let package = Package(
     name: "FLEX",
-    platforms: [.iOS(.v13)],
+    platforms: [.iOS(.v26)],
     products: [
         .library(name: "FLEX", targets: ["FLEX"])
     ],

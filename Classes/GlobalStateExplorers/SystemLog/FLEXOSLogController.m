@@ -8,6 +8,7 @@
 
 #import "FLEXOSLogController.h"
 #import "NSUserDefaults+FLEX.h"
+#import <objc/message.h>
 #include <dlfcn.h>
 #include <string.h>
 #include "ActivityStreamAPI.h"
@@ -21,6 +22,21 @@ static int (*proc_name)(int, char *, unsigned int);
 static int (*proc_listpids)(uint32_t, uint32_t, void*, int);
 static uint8_t (*OSLogGetType)(void *);
 
+/// Shadow interface for LoggingSupport's OSActivityEvent wrapper.
+///
+/// On modern iOS the raw activity stream structs changed layout, so reading
+/// `log_message` fields directly (or calling os_log_copy_formatted_message with
+/// our legacy struct definition) can dereference garbage and crash the host
+/// process. LoggingSupport ships an Objective-C wrapper that knows the current
+/// layout and composes the message safely. We declare it here for type checking
+/// only; the class is looked up at runtime so the dylib doesn't link against the
+/// private framework.
+@interface FLEXOSActivityEvent : NSObject
+@property (nonatomic, copy) NSString *eventMessage;
+@property (nonatomic, readonly) NSDate *timestamp;
+@end
+
+
 @interface FLEXOSLogController ()
 
 + (FLEXOSLogController *)sharedLogController;
@@ -33,6 +49,8 @@ static uint8_t (*OSLogGetType)(void *);
 @property (nonatomic) BOOL subsystemInfo;
 
 @property (nonatomic) os_activity_stream_t stream;
+
+- (NSString *)messageTextForEntry:(os_activity_stream_entry_t)entry date:(NSDate **)outDate;
 
 @end
 
@@ -163,13 +181,8 @@ static uint8_t (*OSLogGetType)(void *);
     if (!error && entry) {
         if (entry->type == OS_ACTIVITY_STREAM_TYPE_LOG_MESSAGE ||
             entry->type == OS_ACTIVITY_STREAM_TYPE_LEGACY_LOG_MESSAGE) {
-            os_log_message_t log_message = &entry->log_message;
-            
-            // Get date
-            NSDate *date = [NSDate dateWithTimeIntervalSince1970:log_message->tv_gmt.tv_sec];
-            
-            // Get log message text
-            NSString *msg = [self messageTextForLogMessage:log_message];
+            NSDate *date = nil;
+            NSString *msg = [self messageTextForEntry:entry date:&date] ?: @"";
 
             dispatch_async(dispatch_get_main_queue(), ^{
                 FLEXSystemLogMessage *message = [FLEXSystemLogMessage logMessageFromDate:date text:msg];
@@ -186,17 +199,58 @@ static uint8_t (*OSLogGetType)(void *);
     return YES;
 }
 
-/// -[os_log_copy_formatted_message] is private SPI that frequently fails to
-/// recompose a message on modern iOS (16+), returning
-/// "<compose failure [corrupt log]>". When that happens, fall back to the raw
-/// format string so the log row is still useful.
-/// See https://github.com/FLEXTool/FLEX/issues/717 and
-/// https://github.com/FLEXTool/FLEX/issues/564
-- (NSString *)messageTextForLogMessage:(os_log_message_t)log_message {
-    const char *formatted = OSLogCopyFormattedMessage(log_message);
-    if (formatted != NULL && formatted[0] != '\0' &&
-        strncmp(formatted, "<compose failure", 16) != 0) {
-        return [NSString stringWithUTF8String:formatted];
+/// Uses LoggingSupport's OSActivityEvent wrapper when available, since its
+/// struct definitions match the running OS. On older iOS where the wrapper
+/// doesn't exist, fall back to the legacy struct path. See
+/// https://github.com/FLEXTool/FLEX/issues/564 and
+/// https://github.com/FLEXTool/FLEX/issues/717
+- (NSString *)messageTextForEntry:(os_activity_stream_entry_t)entry date:(NSDate **)outDate {
+    static Class OSActivityEventClass = nil;
+    static SEL makeEventSEL = NULL;
+    static BOOL hasWrapper = NO;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        OSActivityEventClass = NSClassFromString(@"OSActivityEvent");
+        makeEventSEL = NSSelectorFromString(@"activityEventFromStreamEntry:");
+        hasWrapper = OSActivityEventClass != nil &&
+                     makeEventSEL != NULL &&
+                     [OSActivityEventClass respondsToSelector:makeEventSEL];
+    });
+
+    if (hasWrapper) {
+        FLEXOSActivityEvent *event = ((id (*)(id, SEL, os_activity_stream_entry_t))objc_msgSend)(
+            OSActivityEventClass, makeEventSEL, entry
+        );
+        if (event) {
+            NSDate *date = event.timestamp;
+            if (outDate) {
+                *outDate = [date isKindOfClass:[NSDate class]] ? date : [NSDate date];
+            }
+
+            NSString *text = event.eventMessage;
+            return [text isKindOfClass:[NSString class]] ? text : @"";
+        }
+
+        // The wrapper exists, so the legacy struct layout is unsafe to touch.
+        // Prefer an empty row over dereferencing a stale struct and crashing.
+        if (outDate) {
+            *outDate = [NSDate date];
+        }
+        return @"";
+    }
+
+    // Fallback for older iOS where the wrapper class isn't available.
+    os_log_message_t log_message = &entry->log_message;
+    if (outDate) {
+        *outDate = [NSDate dateWithTimeIntervalSince1970:log_message->tv_gmt.tv_sec];
+    }
+
+    if (OSLogCopyFormattedMessage) {
+        const char *formatted = OSLogCopyFormattedMessage(log_message);
+        if (formatted != NULL && formatted[0] != '\0' &&
+            strncmp(formatted, "<compose failure", 16) != 0) {
+            return [NSString stringWithUTF8String:formatted];
+        }
     }
 
     if (log_message->format != NULL) {

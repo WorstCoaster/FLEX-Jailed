@@ -134,7 +134,7 @@ The code injection is left as an exercise for the reader. :innocent:
 
 ## Installation
 
-FLEX requires an app that targets iOS 9 or higher. To run the Example project, open a Terminal window in the Example/ folder and run `pod install`, then open the generated workspace.
+This fork requires an app that targets iOS 26 or higher (device only). To run the Example project, open a Terminal window in the Example/ folder and run `pod install`, then open the generated workspace.
 
 ### CocoaPods
 

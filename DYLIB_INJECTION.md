@@ -20,14 +20,13 @@ FLEX has been modified to support injection as a dylib. When injected, FLEX auto
 The repo ships a modernized build script that compiles all of `Classes/` directly with clang, in parallel:
 
 ```bash
-./build_dylib.sh              # arm64 iOS device (default, min iOS 13.0)
+./build_dylib.sh              # arm64 iOS device (default, min iOS 26.0)
 ./build_dylib.sh arm64e       # arm64e device slice (A12+)
-./build_dylib.sh simulator    # universal simulator dylib (arm64 + x86_64)
 ./build_dylib.sh --no-sign    # skip code signing (sign later, e.g. in CI)
 ```
 
-- Output: `Build/FLEX.dylib` (universal for simulator builds via `lipo`)
-- Deployment target defaults to iOS 13.0; override with `MIN_IOS_VERSION=15.0 ./build_dylib.sh`
+- Output: `Build/FLEX.dylib` (device-only)
+- Deployment target defaults to iOS 26.0; override with `MIN_IOS_VERSION=26.0 ./build_dylib.sh`
 - Code signing uses an `Apple Development` certificate automatically, or pass `--sign "Identity"`
 - Set `FLEX_JOBS` to control parallelism (defaults to CPU core count)
 

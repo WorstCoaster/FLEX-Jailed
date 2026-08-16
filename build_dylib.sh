@@ -8,17 +8,14 @@
 # Modes:
 #   arm64       iOS device, arm64            (default)
 #   arm64e      iOS device, arm64e (A12+)    (optional, needs matching signing)
-#   simulator   Universal simulator dylib (arm64 + x86_64) via lipo
-#   x86_64      Legacy Intel-only simulator slice
 #
 # Environment:
-#   MIN_IOS_VERSION   minimum iOS deployment version (default 13.0)
+#   MIN_IOS_VERSION   minimum iOS deployment version (default 26.0)
 #   FLEX_JOBS         parallel compile jobs      (default: CPU core count)
 #
 # Examples:
 #   ./build_dylib.sh                       # device arm64
 #   ./build_dylib.sh arm64e                # device arm64e (A12+)
-#   ./build_dylib.sh simulator             # universal simulator dylib
 #   ./build_dylib.sh arm64 --no-sign       # device, skip code signing
 #   ./build_dylib.sh arm64 --sign "Apple Development: Jane Doe"
 
@@ -33,7 +30,7 @@ OUTPUT_DYLIB="$BUILD_DIR/$DYLIB_NAME"
 ENTITLEMENTS="$PROJECT_DIR/entitlements.plist"
 
 # Defaults (override via environment)
-MIN_IOS_VERSION="${MIN_IOS_VERSION:-13.0}"
+MIN_IOS_VERSION="${MIN_IOS_VERSION:-26.0}"
 JOBS="${FLEX_JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 JOBS=$(( JOBS < 1 ? 1 : JOBS ))
 
@@ -45,8 +42,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 usage() {
-    echo "Usage: $0 [arm64|arm64e|simulator|x86_64] [--sign \"Identity\"] [--no-sign]"
-    echo "  MIN_IOS_VERSION env var overrides the deployment target (default 13.0)"
+    echo "Usage: $0 [arm64|arm64e] [--sign \"Identity\"] [--no-sign]"
+    echo "  MIN_IOS_VERSION env var overrides the deployment target (default 26.0)"
     exit 0
 }
 
@@ -69,14 +66,6 @@ case "$MODE" in
     arm64|arm64e)
         TARGET_SDK="iphoneos"
         ARCHS=("$MODE")
-        ;;
-    simulator)
-        TARGET_SDK="iphonesimulator"
-        ARCHS=(arm64 x86_64)
-        ;;
-    x86_64)
-        TARGET_SDK="iphonesimulator"
-        ARCHS=(x86_64)
         ;;
     *)
         echo -e "${RED}Unknown mode: $MODE${NC}"
@@ -228,16 +217,9 @@ echo -e "${BLUE}Cleaning previous builds...${NC}"
 rm -rf "$BUILD_DIR"
 mkdir -p "$OBJ_ROOT"
 
-# Simulator slices need the -simulator target environment, device slices don't
-if [[ "$TARGET_SDK" == "iphonesimulator" ]]; then
-    TARGET_ENV="-simulator"
-else
-    TARGET_ENV=""
-fi
-
 PER_ARCH_DYLIB=()
 for arch in "${ARCHS[@]}"; do
-    target="$arch-apple-ios$MIN_IOS_VERSION$TARGET_ENV"
+    target="$arch-apple-ios$MIN_IOS_VERSION"
     if ! compile_arch "$arch" "$SDK_PATH" "$target"; then
         exit 1
     fi
@@ -247,7 +229,7 @@ done
 # ---------------------------------------------------------------- link
 
 for arch in "${ARCHS[@]}"; do
-    target="$arch-apple-ios$MIN_IOS_VERSION$TARGET_ENV"
+    target="$arch-apple-ios$MIN_IOS_VERSION"
     echo -e "${BLUE}Linking $arch dylib...${NC}"
     OBJECT_FILES=()
     while IFS= read -r f; do OBJECT_FILES+=("$f"); done < <(find "$OBJ_ROOT/$arch" -name '*.o' | sort)

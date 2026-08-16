@@ -38,6 +38,9 @@
     toolbarItem.title = title;
     toolbarItem.image = image;
     toolbarItem.tintColor = FLEXColor.iconColor;
+    // Modern continuous-corner highlight shape
+    toolbarItem.layer.cornerRadius = 10.0;
+    toolbarItem.layer.cornerCurve = kCACornerCurveContinuous;
     toolbarItem.backgroundColor = self.defaultBackgroundColor;
     toolbarItem.titleLabel.font = [UIFont systemFontOfSize:12.0];
     [toolbarItem setTitle:title forState:UIControlStateNormal];
@@ -67,7 +70,7 @@
 }
 
 + (UIColor *)selectedBackgroundColor {
-    return FLEXColor.toolbarItemSelectedColor;
+    return [FLEXColor.tintColor colorWithAlphaComponent:0.18];
 }
 
 + (UIColor *)defaultBackgroundColor {
@@ -122,6 +125,9 @@
     } else {
         self.backgroundColor = self.class.defaultBackgroundColor;
     }
+
+    // Icon tint: system tint while active for a modern selected state
+    self.tintColor = self.selected ? FLEXColor.tintColor : FLEXColor.iconColor;
 }
 
 

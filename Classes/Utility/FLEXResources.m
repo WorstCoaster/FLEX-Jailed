@@ -8690,6 +8690,15 @@ static const u_int8_t FLEXHierarchyIndentPattern3x[] = {
 
 #pragma clang diagnostic pop
 
+/// Renders an SF Symbol as a template image at the given point size.
+/// Used by all toolbar/bar/content icons instead of bundled PNGs.
+static UIImage *FLEXSymbolImage(NSString *name, CGFloat pointSize) {
+    UIImage *image = [UIImage systemImageNamed:name withConfiguration:
+        [UIImageSymbolConfiguration configurationWithPointSize:pointSize]
+    ];
+    return [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+}
+
 @implementation FLEXResources
 
 #define FLEXImage(base) ( \
@@ -8709,7 +8718,7 @@ static const u_int8_t FLEXHierarchyIndentPattern3x[] = {
 #pragma mark - FLEX Toolbar Icons
 
 + (UIImage *)closeIcon {
-    return FLEXImageTemplate(FLEXCloseIcon);
+    return FLEXSymbolImage(@"xmark", 17);
 }
 
 + (UIImage *)dragHandle {
@@ -8717,89 +8726,89 @@ static const u_int8_t FLEXHierarchyIndentPattern3x[] = {
 }
 
 + (UIImage *)globalsIcon {
-    return FLEXImageTemplate(FLEXGlobalsIcon);
+    return FLEXSymbolImage(@"slider.horizontal.3", 17);
 }
 
 + (UIImage *)hierarchyIcon {
-    return FLEXImageTemplate(FLEXHierarchyIcon);
+    return FLEXSymbolImage(@"rectangle.3.group", 17);
 }
 
 + (UIImage *)recentIcon {
-    return FLEXImageTemplate(FLEXRecentTabIcon);
+    return FLEXSymbolImage(@"clock", 17);
 }
 
 + (UIImage *)moveIcon {
-    return FLEXImageTemplate(FLEXMoveIcon);
+    return FLEXSymbolImage(@"arrow.up.and.down.and.arrow.left.and.right", 17);
 }
 
 + (UIImage *)selectIcon {
-    return FLEXImageTemplate(FLEXSelectIcon);
+    return FLEXSymbolImage(@"scope", 17);
 }
 
 
 #pragma mark - Toolbar Icons
 
 + (UIImage *)bookmarksIcon {
-    return FLEXImage(FLEXBookmarksIcon);
+    return FLEXSymbolImage(@"bookmark", 17);
 }
 
 + (UIImage *)openTabsIcon {
-    return FLEXImage(FLEXOpenTabsIcon);
+    return FLEXSymbolImage(@"square.on.square", 17);
 }
 
 + (UIImage *)moreIcon {
-    return FLEXImage(FLEXMoreIcon);
+    return FLEXSymbolImage(@"ellipsis", 17);
 }
 
 + (UIImage *)gearIcon {
-    return FLEXImage(FLEXGearIcon);
+    return FLEXSymbolImage(@"gearshape", 17);
 }
 
 + (UIImage *)scrollToBottomIcon {
-    return FLEXImage(FLEXCircleDownArrowIcon);
+    return FLEXSymbolImage(@"arrow.down.to.line", 17);
 }
 
 
 #pragma mark - Content Type Icons
 
 + (UIImage *)jsonIcon {
-    return FLEXImage(FLEXJSONIcon);
+    return FLEXSymbolImage(@"curlybraces", 16);
 }
 
 + (UIImage *)textPlainIcon {
-    return FLEXImage(FLEXTextPlainIcon);
+    return FLEXSymbolImage(@"doc.plaintext", 16);
 }
 
 + (UIImage *)htmlIcon {
-    return FLEXImage(FLEXHTMLIcon);
+    return FLEXSymbolImage(@"chevron.left.forwardslash.chevron.right", 16);
 }
 
 + (UIImage *)audioIcon {
-    return FLEXImage(FLEXAudioIcon);
+    return FLEXSymbolImage(@"waveform", 16);
 }
 
 + (UIImage *)jsIcon {
-    return FLEXImage(FLEXJSIcon);
+    return FLEXSymbolImage(@"curlybraces", 16);
 }
 
 + (UIImage *)plistIcon {
-    return FLEXImage(FLEXPlistIcon);
+    return FLEXSymbolImage(@"list.bullet.rectangle", 16);
 }
 
 + (UIImage *)textIcon {
-    return FLEXImage(FLEXTextIcon);
+    return FLEXSymbolImage(@"doc.text", 16);
 }
 
 + (UIImage *)videoIcon {
-    return FLEXImage(FLEXVideoIcon);
+    return FLEXSymbolImage(@"video", 16);
 }
 
 + (UIImage *)xmlIcon {
-    return FLEXImage(FLEXXMLIcon);
+    return FLEXSymbolImage(@"chevron.left.forwardslash.chevron.right", 16);
 }
 
 + (UIImage *)binaryIcon {
-    return FLEXImage(FLEXBinaryIcon);
+    return FLEXSymbolImage(@"binary", 16);
 }
 
 

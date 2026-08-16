@@ -35,6 +35,8 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+
+    [self setupModernBarAppearance];
     
     self.waitingToAddTab = YES;
     
@@ -62,6 +64,28 @@
     } else {
         [self addNavigationBarSwipeGesture];
     }
+}
+
+/// Modern translucent navigation bar and toolbar: frosted material,
+/// no hairline shadow. Matches the iOS 26 system look.
+- (void)setupModernBarAppearance {
+    UINavigationBarAppearance *navAppearance = [UINavigationBarAppearance new];
+    [navAppearance configureWithDefaultBackground];
+    navAppearance.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterial];
+    navAppearance.backgroundColor = UIColor.clearColor;
+    navAppearance.shadowColor = UIColor.clearColor;
+    self.navigationBar.standardAppearance = navAppearance;
+    self.navigationBar.scrollEdgeAppearance = navAppearance;
+    self.navigationBar.compactAppearance = navAppearance;
+
+    UIToolbarAppearance *toolbarAppearance = [UIToolbarAppearance new];
+    [toolbarAppearance configureWithDefaultBackground];
+    toolbarAppearance.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterial];
+    toolbarAppearance.backgroundColor = UIColor.clearColor;
+    toolbarAppearance.shadowColor = UIColor.clearColor;
+    self.toolbar.standardAppearance = toolbarAppearance;
+    self.toolbar.scrollEdgeAppearance = toolbarAppearance;
+    self.toolbar.compactAppearance = toolbarAppearance;
 }
 
 - (void)viewWillAppear:(BOOL)animated {

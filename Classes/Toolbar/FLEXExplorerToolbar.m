@@ -30,6 +30,7 @@
 @property (nonatomic) UILabel *selectedViewDescriptionLabel;
 
 @property (nonatomic,readwrite) UIView *backgroundView;
+@property (nonatomic) UIView *selectedViewDescriptionBackground;
 
 @end
 
@@ -38,9 +39,16 @@
 - (id)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        // Background
-        self.backgroundView = [UIView new];
-        self.backgroundView.backgroundColor = [FLEXColor secondaryBackgroundColorWithAlpha:0.95];
+        // Background: Liquid Glass material (iOS 26) with a subtle tint for readability
+        UIVisualEffectView *background = [[UIVisualEffectView alloc]
+            initWithEffect:[UIGlassEffect new]
+        ];
+        background.backgroundColor = [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.35];
+        background.layer.cornerRadius = 24.0;
+        background.layer.cornerCurve = kCACornerCurveContinuous;
+        background.clipsToBounds = YES;
+        background.userInteractionEnabled = NO;
+        self.backgroundView = background;
         [self addSubview:self.backgroundView];
 
         // Drag handle
@@ -62,9 +70,20 @@
         // Selected view box //
         
         self.selectedViewDescriptionContainer = [UIView new];
-        self.selectedViewDescriptionContainer.backgroundColor = [FLEXColor tertiaryBackgroundColorWithAlpha:0.95];
         self.selectedViewDescriptionContainer.hidden = YES;
         [self addSubview:self.selectedViewDescriptionContainer];
+
+        // Description backdrop: matching glass capsule under the selected-view label
+        UIVisualEffectView *descriptionBackground = [[UIVisualEffectView alloc]
+            initWithEffect:[UIGlassEffect new]
+        ];
+        descriptionBackground.backgroundColor = [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.5];
+        descriptionBackground.layer.cornerRadius = 12.0;
+        descriptionBackground.layer.cornerCurve = kCACornerCurveContinuous;
+        descriptionBackground.clipsToBounds = YES;
+        descriptionBackground.userInteractionEnabled = NO;
+        self.selectedViewDescriptionBackground = descriptionBackground;
+        [self.selectedViewDescriptionContainer addSubview:self.selectedViewDescriptionBackground];
 
         self.selectedViewDescriptionSafeAreaContainer = [UIView new];
         self.selectedViewDescriptionSafeAreaContainer.backgroundColor = UIColor.clearColor;
@@ -91,9 +110,16 @@
 
 
     CGRect safeArea = [self safeArea];
-    // Drag Handle
     const CGFloat kToolbarItemHeight = [[self class] toolbarItemHeight];
-    self.dragHandle.frame = CGRectMake(CGRectGetMinX(safeArea), CGRectGetMinY(safeArea), [[self class] dragHandleWidth], kToolbarItemHeight);
+    const CGFloat kToolbarHorizontalInset = 6.0;
+
+    // Drag Handle (inside the floating pill)
+    self.dragHandle.frame = CGRectMake(
+        CGRectGetMinX(safeArea) + kToolbarHorizontalInset,
+        CGRectGetMinY(safeArea),
+        [[self class] dragHandleWidth],
+        kToolbarItemHeight
+    );
     CGRect dragHandleImageFrame = self.dragHandleImageView.frame;
     dragHandleImageFrame.origin.x = FLEXFloor((self.dragHandle.frame.size.width - dragHandleImageFrame.size.width) / 2.0);
     dragHandleImageFrame.origin.y = FLEXFloor((self.dragHandle.frame.size.height - dragHandleImageFrame.size.height) / 2.0);
@@ -104,7 +130,9 @@
     CGFloat originX = CGRectGetMaxX(self.dragHandle.frame);
     CGFloat originY = CGRectGetMinY(safeArea);
     CGFloat height = kToolbarItemHeight;
-    CGFloat width = FLEXFloor((CGRectGetWidth(safeArea) - CGRectGetWidth(self.dragHandle.frame)) / self.toolbarItems.count);
+    CGFloat width = FLEXFloor((
+        CGRectGetWidth(safeArea) - 2 * kToolbarHorizontalInset - CGRectGetWidth(self.dragHandle.frame)
+    ) / self.toolbarItems.count);
     for (FLEXExplorerToolbarItem *toolbarItem in self.toolbarItems) {
         toolbarItem.currentItem.frame = CGRectMake(originX, originY, width, height);
         originX = CGRectGetMaxX(toolbarItem.currentItem.frame);
@@ -113,10 +141,16 @@
     // Make sure the last toolbar item goes to the edge to account for any accumulated rounding effects.
     UIView *lastToolbarItem = self.toolbarItems.lastObject.currentItem;
     CGRect lastToolbarItemFrame = lastToolbarItem.frame;
-    lastToolbarItemFrame.size.width = CGRectGetMaxX(safeArea) - lastToolbarItemFrame.origin.x;
+    lastToolbarItemFrame.size.width = CGRectGetMaxX(safeArea) - kToolbarHorizontalInset - lastToolbarItemFrame.origin.x;
     lastToolbarItem.frame = lastToolbarItemFrame;
 
-    self.backgroundView.frame = CGRectMake(0, 0, CGRectGetWidth(self.bounds), kToolbarItemHeight);
+    // Floating glass pill background, inset from the edges
+    self.backgroundView.frame = CGRectMake(
+        kToolbarHorizontalInset,
+        CGRectGetMinY(safeArea),
+        CGRectGetWidth(safeArea) - 2 * kToolbarHorizontalInset,
+        kToolbarItemHeight
+    );
     
     const CGFloat kSelectedViewColorDiameter = [[self class] selectedViewColorIndicatorDiameter];
     const CGFloat kDescriptionLabelHeight = [[self class] descriptionLabelHeight];
@@ -125,11 +159,12 @@
     const CGFloat kDescriptionContainerHeight = [[self class] descriptionContainerHeight];
     
     CGRect descriptionContainerFrame = CGRectZero;
-    descriptionContainerFrame.size.width = CGRectGetWidth(self.bounds);
+    descriptionContainerFrame.size.width = CGRectGetWidth(self.bounds) - 2 * kToolbarHorizontalInset;
     descriptionContainerFrame.size.height = kDescriptionContainerHeight;
-    descriptionContainerFrame.origin.x = CGRectGetMinX(self.bounds);
-    descriptionContainerFrame.origin.y = CGRectGetMaxY(self.bounds) - kDescriptionContainerHeight;
+    descriptionContainerFrame.origin.x = kToolbarHorizontalInset;
+    descriptionContainerFrame.origin.y = CGRectGetMaxY(self.bounds) - kDescriptionContainerHeight - 4.0;
     self.selectedViewDescriptionContainer.frame = descriptionContainerFrame;
+    self.selectedViewDescriptionBackground.frame = self.selectedViewDescriptionContainer.bounds;
 
     CGRect descriptionSafeAreaContainerFrame = CGRectZero;
     descriptionSafeAreaContainerFrame.size.width = CGRectGetWidth(safeArea);

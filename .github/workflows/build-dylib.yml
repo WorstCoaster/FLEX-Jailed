@@ -21,9 +21,6 @@ jobs:
           - name: device
             arch: arm64
             file: FLEX-device.dylib
-          - name: simulator
-            arch: simulator
-            file: FLEX-simulator.dylib
 
     steps:
       - name: Checkout

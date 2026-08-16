@@ -8,7 +8,7 @@ FLEX has been modified to support injection as a dynamic library (dylib) for deb
 
 1. **`Classes/FLEXDylibEntry.m`** - Entry point that auto-initializes FLEX when the dylib is loaded (idempotent, gesture-based toggle)
 2. **`DYLIB_INJECTION.md`** - Comprehensive guide for building and injecting
-3. **`build_dylib.sh`** - Modern build script (arm64 / arm64e / universal simulator, parallel compilation)
+3. **`build_dylib.sh`** - Modern build script (arm64 / arm64e device slices, parallel compilation)
 4. **`entitlements.plist`** - Code signing entitlements template
 
 ## Quick Build Steps
@@ -28,11 +28,6 @@ This will:
 - Code sign (if a certificate is available, or pass `--sign "Identity"`)
 - Output: `Build/FLEX.dylib`
 
-**For iOS Simulator (universal — arm64 + x86_64, works on Apple Silicon and Intel):**
-```bash
-./build_dylib.sh simulator
-```
-
 **For iOS Device (arm64, default):**
 ```bash
 ./build_dylib.sh arm64
@@ -51,7 +46,7 @@ This will:
 
 **Other options:**
 ```bash
-MIN_IOS_VERSION=15.0 ./build_dylib.sh    # raise minimum iOS version (default 13.0)
+MIN_IOS_VERSION=26.0 ./build_dylib.sh    # raise minimum iOS version (default 26.0)
 FLEX_JOBS=8 ./build_dylib.sh             # control parallel compile jobs
 ```
 
@@ -111,7 +106,7 @@ When the dylib is injected:
 - The Substrate dependency in SystemLog is optional and won't break on non-jailbroken devices
 - All FLEX features work except some advanced system log hooks that require Substrate
 - The dylib must be properly code signed to work on non-jailbroken devices
-- The build script defaults to a minimum iOS of 13.0 (`MIN_IOS_VERSION` to override)
+- The build script defaults to a minimum iOS of 26.0 (`MIN_IOS_VERSION` to override)
 
 ## Troubleshooting
 

@@ -16,17 +16,6 @@
                 <key>scheme</key>
                 <string>FLEX</string>
             </dict>
-            <dict>
-                <key>sdk</key>
-                <string>iOSSimulator</string>
-                <key>project</key>
-                <string>FLEX.xcodeproj</string>
-                <key>scheme</key>
-                <string>FLEX</string>
-            </dict>
-            <!--
-               Remove this comment and add more targets for Simulators and the Devices.
-            -->
         </array>
         <key>finalActions</key>
         <array>
