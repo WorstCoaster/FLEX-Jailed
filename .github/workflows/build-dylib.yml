@@ -33,7 +33,7 @@ jobs:
         run: cp Build/FLEX.dylib Build/${{ matrix.file }}
 
       - name: Upload ${{ matrix.name }} dylib
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: flex-dylib-${{ matrix.name }}
           path: Build/${{ matrix.file }}
