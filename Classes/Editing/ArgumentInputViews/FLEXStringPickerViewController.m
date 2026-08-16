@@ -29,8 +29,15 @@
     return picker;
 }
 
+- (instancetype)initWithStyle:(UITableViewStyle)style {
+    // Inset grouped matches the iOS 26 system list style.
+    return [super initWithStyle:UITableViewStyleInsetGrouped];
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
+
+    self.tableView.backgroundColor = FLEXColor.groupedBackgroundColor;
 
     self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.searchController.searchResultsUpdater = self;

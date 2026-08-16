@@ -92,6 +92,100 @@
     return typeEncoding[0] == FLEXTypeEncodingConst && typeEncoding[1] == FLEXTypeEncodingSelector;
 }
 
++ (BOOL)isStringObjectTypeEncoding:(const char *)typeEncoding {
+    return typeEncoding != NULL && strcmp(typeEncoding, FLEXEncodeClass(NSString)) == 0;
+}
+
++ (NSArray<NSString *> *)suggestedStringsForObject:(id)object {
+    NSMutableOrderedSet<NSString *> *values = [NSMutableOrderedSet new];
+
+    // 1. KVC key paths available on the target, from the full class hierarchy.
+    if (object) {
+        Class cursor = object_isClass(object) ? (Class)object : object_getClass(object);
+        while (cursor != NULL) {
+            unsigned int count = 0;
+
+            objc_property_t *properties = class_copyPropertyList(cursor, &count);
+            for (unsigned int i = 0; i < count; i++) {
+                const char *name = property_getName(properties[i]);
+                if (name != NULL) {
+                    [values addObject:@(name)];
+                }
+            }
+            if (properties != NULL) {
+                free(properties);
+            }
+
+            unsigned int ivarCount = 0;
+            Ivar *ivars = class_copyIvarList(cursor, &ivarCount);
+            for (unsigned int i = 0; i < ivarCount; i++) {
+                const char *name = ivar_getName(ivars[i]);
+                if (name != NULL) {
+                    NSString *ivarName = @(name);
+                    // KVC strips the leading underscore from ivar-backed keys.
+                    if ([ivarName hasPrefix:@"_"]) {
+                        ivarName = [ivarName substringFromIndex:1];
+                    }
+                    [values addObject:ivarName];
+                }
+            }
+            if (ivars != NULL) {
+                free(ivars);
+            }
+
+            cursor = class_getSuperclass(cursor);
+        }
+    }
+
+    // 2. Keys currently stored in user defaults, both global and app-specific.
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    [values addObjectsFromArray:defaults.dictionaryRepresentation.allKeys];
+    NSString *bundleID = NSBundle.mainBundle.bundleIdentifier;
+    if (bundleID.length > 0) {
+        [values addObjectsFromArray:[defaults persistentDomainForName:bundleID].allKeys];
+    }
+
+    // 3. Common system notification names, which are frequent string arguments
+    // to addObserver:-style APIs.
+    [values addObjectsFromArray:[self commonNotificationNames]];
+
+    return [[values array] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
++ (NSArray<NSString *> *)commonNotificationNames {
+    return @[
+        UIApplicationDidFinishLaunchingNotification,
+        UIApplicationDidBecomeActiveNotification,
+        UIApplicationWillResignActiveNotification,
+        UIApplicationDidEnterBackgroundNotification,
+        UIApplicationWillEnterForegroundNotification,
+        UIApplicationWillTerminateNotification,
+        UIApplicationDidReceiveMemoryWarningNotification,
+        UIApplicationSignificantTimeChangeNotification,
+        UIApplicationUserDidTakeScreenshotNotification,
+        UIKeyboardWillShowNotification,
+        UIKeyboardDidShowNotification,
+        UIKeyboardWillHideNotification,
+        UIKeyboardDidHideNotification,
+        UIKeyboardWillChangeFrameNotification,
+        UIKeyboardDidChangeFrameNotification,
+        UIDeviceOrientationDidChangeNotification,
+        UIDeviceBatteryStateDidChangeNotification,
+        UIDeviceBatteryLevelDidChangeNotification,
+        UIDeviceProximityStateDidChangeNotification,
+        UIScreenBrightnessDidChangeNotification,
+        UIScreenDidConnectNotification,
+        UIScreenDidDisconnectNotification,
+        UIContentSizeCategoryDidChangeNotification,
+        UIAccessibilityReduceMotionStatusDidChangeNotification,
+        UIAccessibilityVoiceOverStatusDidChangeNotification,
+        NSCurrentLocaleDidChangeNotification,
+        NSUserDefaultsDidChangeNotification,
+        NSSystemClockDidChangeNotification,
+        NSSystemTimeZoneDidChangeNotification,
+    ];
+}
+
 + (NSArray<NSString *> *)selectorNamesForObject:(id)object instanceMethod:(BOOL)instanceMethod {
     if (!object) {
         return @[];

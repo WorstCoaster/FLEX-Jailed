@@ -69,6 +69,13 @@
                 instanceMethod:self.method.isInstanceMethod
             ];
             inputView.suggestedValuesTitle = @"Selectors";
+        } else if ([FLEXArgumentInputStringView isStringObjectTypeEncoding:argumentTypeEncoding]) {
+            // Plain string arguments get a pool of KVC key paths, defaults keys,
+            // and notification names instead of forcing free-text entry.
+            inputView.suggestedValues = [FLEXArgumentInputStringView
+                suggestedStringsForObject:self.target
+            ];
+            inputView.suggestedValuesTitle = @"Values";
         }
 
         free(argumentTypeEncoding);

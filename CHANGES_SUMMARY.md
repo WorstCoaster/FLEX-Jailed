@@ -143,10 +143,19 @@ To test:
     above the heap scan, with a search field to narrow both lists
   - Object-typed arguments default straight to the instance picker, so the
     available options are visible immediately
+  - Live instances are now grouped by concrete class with per-group counts,
+    the target class is surfaced first, and known singletons are retained for
+    the lifetime of the picker (no dangling window/root-view-controller refs)
 - **Value pools for `SEL` arguments** - when calling a method or editing a
   selector-typed property, a "Choose" button now lists every selector available
   on the target (instance or class methods, including inherited ones) in a
   searchable picker, instead of requiring free-text entry
+- **Value pools for plain `NSString` arguments** - method calls that take a
+  string now also offer a searchable "Choose" pool built from KVC key paths on
+  the target, the app's user-defaults keys, and common system notification
+  names, instead of forcing free-text entry
+- **Modern pickers** - the selector, string, and instance pickers now use the
+  iOS 26 inset-grouped list style so they match the rest of the modernized UI
 - **Liquid Glass design (iOS 26)** - the explorer toolbar is now a floating
   glass pill (`UIGlassEffect`) with continuous-corner highlights and a
   matching glass caption under the selected-view description; navigation and

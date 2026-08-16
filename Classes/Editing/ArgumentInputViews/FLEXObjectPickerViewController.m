@@ -18,13 +18,23 @@
 /// Keep the heap scan bounded. This is a picker, not a full object browser.
 static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 
+/// A named group of live instances that all share the same concrete class.
+@interface FLEXObjectPickerGroup : NSObject
+@property (nonatomic) NSString *className;
+@property (nonatomic) NSArray<FLEXObjectRef *> *objects;
+@end
+
+@implementation FLEXObjectPickerGroup
+@end
+
+
 @interface FLEXObjectPickerViewController () <UISearchResultsUpdating>
 
 @property (nonatomic) NSString *className;
 @property (nonatomic) Class targetClass;
 @property (nonatomic, copy) void (^completion)(id object);
-@property (nonatomic) NSArray<FLEXObjectRef *> *instances;
 @property (nonatomic) NSArray<FLEXObjectRef *> *knownInstances;
+@property (nonatomic) NSArray<FLEXObjectPickerGroup *> *instanceGroups;
 @property (nonatomic) BOOL truncated;
 @property (nonatomic) UISearchController *searchController;
 
@@ -69,11 +79,17 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     return picker;
 }
 
+- (instancetype)initWithStyle:(UITableViewStyle)style {
+    // Inset grouped matches the iOS 26 system list style used throughout FLEX.
+    return [super initWithStyle:UITableViewStyleInsetGrouped];
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
 
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 56;
+    self.tableView.backgroundColor = FLEXColor.groupedBackgroundColor;
 
     self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.searchController.searchResultsUpdater = self;
@@ -90,12 +106,12 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     ];
 
     self.knownInstances = [self collectKnownInstances];
-    self.instances = [self collectInstances];
+    self.instanceGroups = [self collectInstanceGroups];
 }
 
 #pragma mark - Instance collection
 
-- (NSArray<FLEXObjectRef *> *)collectInstances {
+- (NSArray<FLEXObjectPickerGroup *> *)collectInstanceGroups {
     Class targetClass = self.targetClass;
     if (targetClass == NULL) {
         return @[];
@@ -130,7 +146,40 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     }];
 
     self.truncated = truncated;
-    return [FLEXObjectRef referencingAll:objects retained:YES];
+
+    // Retain the heap objects for the lifetime of the picker, then group them
+    // by concrete class so subclasses are easy to scan at a glance.
+    NSArray<FLEXObjectRef *> *refs = [FLEXObjectRef referencingAll:objects retained:YES];
+    NSMutableDictionary<NSString *, NSMutableArray<FLEXObjectRef *> *> *byClass = [NSMutableDictionary new];
+    for (FLEXObjectRef *ref in refs) {
+        NSString *className = [FLEXRuntimeUtility safeClassNameForObject:ref.object];
+        NSMutableArray<FLEXObjectRef *> *group = byClass[className];
+        if (!group) {
+            group = [NSMutableArray new];
+            byClass[className] = group;
+        }
+        [group addObject:ref];
+    }
+
+    NSMutableArray<NSString *> *orderedNames = [[byClass.allKeys
+        sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)] mutableCopy];
+
+    // Surface the target class first so the most common pick is at the top.
+    NSString *targetName = NSStringFromClass(targetClass);
+    if ([orderedNames containsObject:targetName]) {
+        [orderedNames removeObject:targetName];
+        [orderedNames insertObject:targetName atIndex:0];
+    }
+
+    NSMutableArray<FLEXObjectPickerGroup *> *groups = [NSMutableArray new];
+    for (NSString *name in orderedNames) {
+        FLEXObjectPickerGroup *group = [FLEXObjectPickerGroup new];
+        group.className = name;
+        group.objects = byClass[name];
+        [groups addObject:group];
+    }
+
+    return groups;
 }
 
 /// Well-known singletons and app objects that match the target class. These are
@@ -150,7 +199,9 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
         }
         [seen addObject:object];
         if ([FLEXRuntimeUtility safeObject:object isKindOfClass:targetClass]) {
-            [refs addObject:[FLEXObjectRef unretained:object ivar:label]];
+            // Retain these as well; window and root-view-controller references
+            // can change while the picker is on screen.
+            [refs addObject:[FLEXObjectRef retained:object ivar:label]];
         }
     };
 
@@ -181,7 +232,8 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 }
 
 - (void)rescan {
-    self.instances = [self collectInstances];
+    self.knownInstances = [self collectKnownInstances];
+    self.instanceGroups = [self collectInstanceGroups];
     [self.tableView reloadData];
 }
 
@@ -205,42 +257,82 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     return [self.knownInstances filteredArrayUsingPredicate:predicate];
 }
 
-- (NSArray<FLEXObjectRef *> *)filteredInstances {
+- (NSArray<FLEXObjectPickerGroup *> *)filteredInstanceGroups {
     NSString *filter = self.filterText;
     if (!filter) {
-        return self.instances;
+        return self.instanceGroups;
     }
 
     NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(FLEXObjectRef *ref, NSDictionary *bindings) {
         return [ref.reference localizedCaseInsensitiveContainsString:filter] ||
                [ref.summary localizedCaseInsensitiveContainsString:filter];
     }];
-    return [self.instances filteredArrayUsingPredicate:predicate];
+
+    NSMutableArray<FLEXObjectPickerGroup *> *filtered = [NSMutableArray new];
+    for (FLEXObjectPickerGroup *group in self.instanceGroups) {
+        NSArray<FLEXObjectRef *> *matching = [group.objects filteredArrayUsingPredicate:predicate];
+        if (matching.count > 0) {
+            FLEXObjectPickerGroup *copy = [FLEXObjectPickerGroup new];
+            copy.className = group.className;
+            copy.objects = matching;
+            [filtered addObject:copy];
+        }
+    }
+
+    return filtered;
+}
+
+- (BOOL)showsKnownSection {
+    return self.filteredKnownInstances.count > 0;
+}
+
+- (NSInteger)liveSectionOffset {
+    return self.showsKnownSection ? 1 : 0;
+}
+
+- (NSArray<FLEXObjectPickerGroup *> *)liveGroups {
+    return self.filteredInstanceGroups;
 }
 
 #pragma mark - Table view
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return self.filteredKnownInstances.count > 0 ? 2 : 1;
+    NSInteger sections = self.liveGroups.count ?: 1; // Always at least the empty state.
+    if (self.showsKnownSection) {
+        sections += 1;
+    }
+    return sections;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0 && self.filteredKnownInstances.count > 0) {
+    if (self.showsKnownSection && section == 0) {
         return self.filteredKnownInstances.count;
     }
-    return self.filteredInstances.count ?: 1;
+
+    if (self.liveGroups.count == 0) {
+        return 1; // Empty-state row.
+    }
+
+    NSInteger liveIndex = section - self.liveSectionOffset;
+    return self.liveGroups[liveIndex].objects.count;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (section == 0 && self.filteredKnownInstances.count > 0) {
+    if (self.showsKnownSection && section == 0) {
         return @"Known";
     }
-    return @"Live instances";
+
+    if (self.liveGroups.count == 0) {
+        return @"Live instances";
+    }
+
+    FLEXObjectPickerGroup *group = self.liveGroups[section - self.liveSectionOffset];
+    return [NSString stringWithFormat:@"%@ (%@)", group.className, @(group.objects.count)];
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    NSInteger liveSection = self.filteredKnownInstances.count > 0 ? 1 : 0;
-    if (section == liveSection && self.truncated) {
+    if (self.truncated && self.liveGroups.count > 0 &&
+        section == self.tableView.numberOfSections - 1) {
         return [NSString stringWithFormat:
             @"Showing the first %@ live instances. Use search to narrow the results.",
             @(kFLEXObjectPickerMaxResults)
@@ -259,7 +351,7 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
         cell.backgroundColor = FLEXColor.primaryBackgroundColor;
     }
 
-    if (indexPath.section == 0 && self.filteredKnownInstances.count > 0) {
+    if (self.showsKnownSection && indexPath.section == 0) {
         FLEXObjectRef *ref = self.filteredKnownInstances[indexPath.row];
         cell.textLabel.text = ref.reference;
         cell.detailTextLabel.text = ref.summary;
@@ -267,14 +359,20 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
         return cell;
     }
 
-    if (self.filteredInstances.count == 0) {
-        cell.textLabel.text = @"No live instances found";
-        cell.detailTextLabel.text = @"Tap to rescan the heap";
+    if (self.liveGroups.count == 0) {
+        if (self.filterText.length > 0) {
+            cell.textLabel.text = @"No matching instances";
+            cell.detailTextLabel.text = @"Clear the search to browse all instances";
+        } else {
+            cell.textLabel.text = @"No live instances found";
+            cell.detailTextLabel.text = @"Tap to rescan the heap";
+        }
         cell.accessoryType = UITableViewCellAccessoryNone;
         return cell;
     }
 
-    FLEXObjectRef *ref = self.filteredInstances[indexPath.row];
+    FLEXObjectPickerGroup *group = self.liveGroups[indexPath.section - self.liveSectionOffset];
+    FLEXObjectRef *ref = group.objects[indexPath.row];
     cell.textLabel.text = ref.reference;
     cell.detailTextLabel.text = ref.summary;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -285,13 +383,20 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 
     FLEXObjectRef *ref = nil;
-    if (indexPath.section == 0 && self.filteredKnownInstances.count > 0) {
+    if (self.showsKnownSection && indexPath.section == 0) {
         ref = self.filteredKnownInstances[indexPath.row];
-    } else if (self.filteredInstances.count == 0) {
-        [self rescan];
+    } else if (self.liveGroups.count == 0) {
+        // Only rescan when the heap is actually empty; a search mismatch
+        // should not trigger an expensive heap walk.
+        if (self.filterText.length == 0) {
+            [self rescan];
+        }
         return;
-    } else if (indexPath.row < self.filteredInstances.count) {
-        ref = self.filteredInstances[indexPath.row];
+    } else {
+        FLEXObjectPickerGroup *group = self.liveGroups[indexPath.section - self.liveSectionOffset];
+        if (indexPath.row < group.objects.count) {
+            ref = group.objects[indexPath.row];
+        }
     }
 
     if (ref) {
