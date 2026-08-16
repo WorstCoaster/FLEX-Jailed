@@ -228,13 +228,16 @@ echo -e "${BLUE}Cleaning previous builds...${NC}"
 rm -rf "$BUILD_DIR"
 mkdir -p "$OBJ_ROOT"
 
+# Simulator slices need the -simulator target environment, device slices don't
+if [[ "$TARGET_SDK" == "iphonesimulator" ]]; then
+    TARGET_ENV="-simulator"
+else
+    TARGET_ENV=""
+fi
+
 PER_ARCH_DYLIB=()
 for arch in "${ARCHS[@]}"; do
-    case "$arch" in
-        arm64e) target="$arch-apple-ios$MIN_IOS_VERSION" ;;
-        arm64)  target="$arch-apple-ios$MIN_IOS_VERSION" ;;
-        x86_64) target="$arch-apple-ios$MIN_IOS_VERSION-simulator" ;;
-    esac
+    target="$arch-apple-ios$MIN_IOS_VERSION$TARGET_ENV"
     if ! compile_arch "$arch" "$SDK_PATH" "$target"; then
         exit 1
     fi
@@ -244,11 +247,7 @@ done
 # ---------------------------------------------------------------- link
 
 for arch in "${ARCHS[@]}"; do
-    case "$arch" in
-        arm64e) target="$arch-apple-ios$MIN_IOS_VERSION" ;;
-        arm64)  target="$arch-apple-ios$MIN_IOS_VERSION" ;;
-        x86_64) target="$arch-apple-ios$MIN_IOS_VERSION-simulator" ;;
-    esac
+    target="$arch-apple-ios$MIN_IOS_VERSION$TARGET_ENV"
     echo -e "${BLUE}Linking $arch dylib...${NC}"
     OBJECT_FILES=()
     while IFS= read -r f; do OBJECT_FILES+=("$f"); done < <(find "$OBJ_ROOT/$arch" -name '*.o' | sort)
