@@ -214,17 +214,22 @@ typedef NS_ENUM(NSUInteger, FLEXArgInputObjectType) {
 
 - (void)instanceButtonTapped:(UIButton *)sender {
     NSString *className = [FLEXObjectPickerViewController classNameFromTypeEncoding:self.typeEncoding.UTF8String];
-    UIViewController *host = [FLEXUtility viewControllerForView:self];
 
-    FLEXObjectPickerViewController *picker = [FLEXObjectPickerViewController
-        pickerForClassName:className
-        completion:^(id object) {
-            self.selectedInstance = object;
-            [self updateInstanceControls];
-            [self.delegate argumentInputViewValueDidChange:self];
-        }
-    ];
+    void (^completion)(id object) = ^(id object) {
+        self.selectedInstance = object;
+        [self updateInstanceControls];
+        [self.delegate argumentInputViewValueDidChange:self];
+    };
 
+    FLEXObjectPickerViewController *picker;
+    if (className.length > 0) {
+        picker = [FLEXObjectPickerViewController pickerForClassName:className completion:completion];
+    } else {
+        // Plain `id` arguments have no class hint; offer every live object.
+        picker = [FLEXObjectPickerViewController pickerForAnyObjectWithCompletion:completion];
+    }
+
+    UIViewController *host = [FLEXUtility nearestViewControllerForView:self];
     [host.navigationController pushViewController:picker animated:YES];
 }
 

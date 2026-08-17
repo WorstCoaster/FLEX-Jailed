@@ -74,7 +74,8 @@
     inputView.inputValue = self.currentValue;
     inputView.delegate = self;
 
-    // Offer the pool of selectors available on the target for SEL-typed fields.
+    // Offer a searchable pool of values for selector- and string-typed fields
+    // so users don't have to type (or guess) the value by hand.
     if ([FLEXArgumentInputStringView isSelectorTypeEncoding:self.typeEncoding]) {
         BOOL isInstanceMethod = !object_isClass(self.target);
         inputView.suggestedValues = [FLEXArgumentInputStringView
@@ -82,6 +83,18 @@
             instanceMethod:isInstanceMethod
         ];
         inputView.suggestedValuesTitle = @"Selectors";
+    } else if ([FLEXArgumentInputStringView isStringObjectTypeEncoding:self.typeEncoding]) {
+        // String fields get a fast pool of key paths and defaults keys up
+        // front, plus a lazy scan of heap strings and runtime names.
+        inputView.suggestedValuesTitle = @"Values";
+        // Assign the loader first so the "Choose" button stays visible even
+        // when the fast pool above is empty.
+        inputView.suggestedValuesLoader = ^(void(^done)(NSArray<NSString *> *values)) {
+            [FLEXArgumentInputStringView additionalStringsWithCompletion:done];
+        };
+        inputView.suggestedValues = [FLEXArgumentInputStringView
+            suggestedStringsForObject:self.target
+        ];
     }
 
     self.fieldEditorView.argumentInputViews = @[inputView];

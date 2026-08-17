@@ -132,6 +132,17 @@ BOOL FLEXConstructorsShouldRun(void) {
     return nil;
 }
 
++ (UIViewController *)nearestViewControllerForView:(UIView *)view {
+    UIResponder *responder = view;
+    while (responder) {
+        if ([responder isKindOfClass:[UIViewController class]]) {
+            return (UIViewController *)responder;
+        }
+        responder = responder.nextResponder;
+    }
+    return nil;
+}
+
 + (UIImage *)previewImageForView:(UIView *)view {
     if (CGRectIsEmpty(view.bounds)) {
         return [UIImage new];

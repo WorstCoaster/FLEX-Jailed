@@ -65,8 +65,14 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 }
 
 + (BOOL)canPickInstancesOfTypeEncoding:(const char *)typeEncoding {
-    NSString *className = [self classNameFromTypeEncoding:typeEncoding];
-    return className.length > 0 && NSClassFromString(className) != nil;
+    if (typeEncoding == NULL) {
+        return NO;
+    }
+
+    // `@` (id) and `@"ClassName"` both enumerate to live objects. `#` (Class)
+    // is intentionally excluded: class objects are not necessarily heap
+    // allocations, so a heap scan would silently omit most of them.
+    return typeEncoding[0] == FLEXTypeEncodingObjcObject;
 }
 
 + (instancetype)pickerForClassName:(NSString *)className
@@ -76,6 +82,15 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     picker.targetClass = NSClassFromString(className);
     picker.completion = completion;
     picker.title = [NSString stringWithFormat:@"%@ instances", className];
+    return picker;
+}
+
++ (instancetype)pickerForAnyObjectWithCompletion:(void(^)(id object))completion {
+    FLEXObjectPickerViewController *picker = [self new];
+    picker.className = nil;
+    picker.targetClass = NULL;
+    picker.completion = completion;
+    picker.title = @"Objects";
     return picker;
 }
 
@@ -113,11 +128,19 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 
 - (NSArray<FLEXObjectPickerGroup *> *)collectInstanceGroups {
     Class targetClass = self.targetClass;
-    if (targetClass == NULL) {
-        return @[];
-    }
+    BOOL matchAny = (targetClass == NULL);
 
-    NSMutableArray *objects = [NSMutableArray new];
+    // Bounding the "any object" scan keeps a few hot classes from crowding
+    // every other class out of the list.
+    NSUInteger perClassLimit = matchAny ? 40 : kFLEXObjectPickerMaxResults;
+    NSUInteger totalLimit = matchAny ? 2000 : kFLEXObjectPickerMaxResults;
+
+    // Collect raw pointers during the walk without retaining them; arbitrary
+    // heap objects (some libdispatch internals, for example) can be unsafe to
+    // retain. We validate and retain only the candidates we keep, below.
+    NSMutableDictionary<NSString *, NSMutableArray<NSValue *> *> *byClass = [NSMutableDictionary new];
+    NSMutableOrderedSet<NSString *> *classOrder = [NSMutableOrderedSet new];
+    __block NSUInteger total = 0;
     __block BOOL truncated = NO;
 
     [FLEXHeapEnumerator enumerateLiveObjectsUsingBlock:^(
@@ -126,56 +149,87 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
         if (truncated) {
             return;
         }
-
-        // Match the class or any subclass without messaging the object,
-        // since heap candidates are only validated by their isa pointer.
-        Class tryClass = actualClass;
-        while (tryClass != NULL) {
-            if (tryClass == targetClass) {
-                if (malloc_size((__bridge const void *)object) > 0) {
-                    if (objects.count < kFLEXObjectPickerMaxResults) {
-                        [objects addObject:object];
-                    } else {
-                        truncated = YES;
-                    }
-                }
-                break;
-            }
-            tryClass = class_getSuperclass(tryClass);
+        if (total >= totalLimit) {
+            truncated = YES;
+            return;
         }
+        if (actualClass == NULL) {
+            return;
+        }
+
+        // Match the class or any subclass without messaging the object, since
+        // heap candidates are only validated by their isa pointer. A nil
+        // target class means "every object".
+        BOOL matches = matchAny;
+        if (!matchAny) {
+            Class tryClass = actualClass;
+            while (tryClass != NULL) {
+                if (tryClass == targetClass) {
+                    matches = YES;
+                    break;
+                }
+                tryClass = class_getSuperclass(tryClass);
+            }
+        }
+
+        if (!matches) {
+            return;
+        }
+        if (malloc_size((__bridge const void *)object) == 0) {
+            return;
+        }
+
+        NSString *className = @(class_getName(actualClass));
+        NSMutableArray<NSValue *> *boxes = byClass[className];
+        if (!boxes) {
+            boxes = [NSMutableArray new];
+            byClass[className] = boxes;
+            [classOrder addObject:className];
+        }
+        if (boxes.count >= perClassLimit) {
+            return;
+        }
+
+        [boxes addObject:[NSValue valueWithPointer:(__bridge const void *)object]];
+        total++;
     }];
 
     self.truncated = truncated;
 
-    // Retain the heap objects for the lifetime of the picker, then group them
-    // by concrete class so subclasses are easy to scan at a glance.
-    NSArray<FLEXObjectRef *> *refs = [FLEXObjectRef referencingAll:objects retained:YES];
-    NSMutableDictionary<NSString *, NSMutableArray<FLEXObjectRef *> *> *byClass = [NSMutableDictionary new];
-    for (FLEXObjectRef *ref in refs) {
-        NSString *className = [FLEXRuntimeUtility safeClassNameForObject:ref.object];
-        NSMutableArray<FLEXObjectRef *> *group = byClass[className];
-        if (!group) {
-            group = [NSMutableArray new];
-            byClass[className] = group;
-        }
-        [group addObject:ref];
-    }
-
-    NSMutableArray<NSString *> *orderedNames = [[byClass.allKeys
+    // Build retained groups so the picker can keep the instances alive while
+    // it is on screen. Validate each pointer first; the heap lock is released
+    // by the time we get here.
+    NSMutableArray<NSString *> *orderedNames = [[classOrder.array
         sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)] mutableCopy];
 
     // Surface the target class first so the most common pick is at the top.
-    NSString *targetName = NSStringFromClass(targetClass);
-    if ([orderedNames containsObject:targetName]) {
-        [orderedNames removeObject:targetName];
-        [orderedNames insertObject:targetName atIndex:0];
+    if (targetClass != NULL) {
+        NSString *targetName = NSStringFromClass(targetClass);
+        if ([orderedNames containsObject:targetName]) {
+            [orderedNames removeObject:targetName];
+            [orderedNames insertObject:targetName atIndex:0];
+        }
     }
 
     NSMutableArray<FLEXObjectPickerGroup *> *groups = [NSMutableArray new];
     for (NSString *name in orderedNames) {
+        NSArray<NSValue *> *boxes = byClass[name];
+        NSMutableArray<FLEXObjectRef *> *refs = [NSMutableArray new];
+        for (NSValue *box in boxes) {
+            void *pointer = box.pointerValue;
+            if (![FLEXRuntimeUtility pointerIsValidObjcObject:pointer]) {
+                continue;
+            }
+            [refs addObject:[FLEXObjectRef retained:(__bridge id)pointer]];
+        }
+
+        if (refs.count == 0) {
+            continue;
+        }
+
         FLEXObjectPickerGroup *group = [FLEXObjectPickerGroup new];
         group.className = name;
-        group.objects = byClass[name];
+        group.objects = refs;
         [groups addObject:group];
     }
 
@@ -186,9 +240,7 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 /// listed above the heap scan so common values are one tap away.
 - (NSArray<FLEXObjectRef *> *)collectKnownInstances {
     Class targetClass = self.targetClass;
-    if (targetClass == NULL) {
-        return @[];
-    }
+    BOOL matchAny = (targetClass == NULL);
 
     NSMutableArray<FLEXObjectRef *> *refs = [NSMutableArray new];
     NSHashTable *seen = [NSHashTable weakObjectsHashTable];
@@ -198,7 +250,7 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
             return;
         }
         [seen addObject:object];
-        if ([FLEXRuntimeUtility safeObject:object isKindOfClass:targetClass]) {
+        if (matchAny || [FLEXRuntimeUtility safeObject:object isKindOfClass:targetClass]) {
             // Retain these as well; window and root-view-controller references
             // can change while the picker is on screen.
             [refs addObject:[FLEXObjectRef retained:object ivar:label]];
@@ -333,10 +385,7 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (self.truncated && self.liveGroups.count > 0 &&
         section == self.tableView.numberOfSections - 1) {
-        return [NSString stringWithFormat:
-            @"Showing the first %@ live instances. Use search to narrow the results.",
-            @(kFLEXObjectPickerMaxResults)
-        ];
+        return @"Showing a limited sample of live instances. Use search to narrow the results.";
     }
     return nil;
 }

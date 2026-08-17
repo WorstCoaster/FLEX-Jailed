@@ -119,7 +119,7 @@
 - (void)suggestButtonTapped:(UIButton *)sender {
     [self.inputTextView resignFirstResponder];
 
-    UIViewController *host = [FLEXUtility viewControllerForView:self];
+    UIViewController *host = [FLEXUtility nearestViewControllerForView:self];
     FLEXStringPickerViewController *picker = [FLEXStringPickerViewController
         options:self.suggestedValues
         title:self.suggestedValuesTitle

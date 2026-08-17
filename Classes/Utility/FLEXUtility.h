@@ -34,6 +34,10 @@
 + (NSString *)stringForCGRect:(CGRect)rect;
 + (UIViewController *)viewControllerForView:(UIView *)view;
 + (UIViewController *)viewControllerForAncestralView:(UIView *)view;
+/// Walks the responder chain upward from \c view to the nearest view controller.
+/// Unlike \c viewControllerForView:, this works for views nested several levels
+/// deep (for example inside a scroll view and an editor subview).
++ (UIViewController *)nearestViewControllerForView:(UIView *)view;
 + (UIImage *)previewImageForView:(UIView *)view;
 + (UIImage *)previewImageForLayer:(CALayer *)layer;
 + (NSString *)detailDescriptionForView:(UIView *)view;

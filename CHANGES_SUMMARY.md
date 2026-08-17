@@ -155,6 +155,19 @@ To test:
   the target and the app's user-defaults keys up front, then lazily extends
   itself by scanning the heap (live `NSString` instances) and the Objective-C
   runtime (class and protocol names) — no hardcoded value list
+  - String-typed **properties and ivars** get the same searchable "Choose"
+    pool in the field editor, so editing a string field is just as easy as
+    passing a string to a method
+- **Picker navigation fix** - the "Choose" (string/selector) and
+  "Choose instance"/"Change instance" buttons now resolve the host navigation
+  controller by walking the view's responder chain (`nearestViewControllerForView:`)
+  instead of probing the private `_viewDelegate` ivar, which returned nil for
+  these input views and made the buttons silently do nothing when tapped
+- **Plain `id` instance picking** - object arguments typed as plain `id` (no
+  class hint) now offer the instance picker over the whole heap, grouped by
+  class with per-class limits so a few hot classes can't crowd out the rest;
+  `Class`-typed (`#`) arguments stay excluded since class objects are not
+  guaranteed to be heap allocations
 - **Modern pickers** - the selector, string, and instance pickers now use the
   iOS 26 inset-grouped list style so they match the rest of the modernized UI
 - **Liquid Glass design (iOS 26)** - the explorer toolbar is now a floating
