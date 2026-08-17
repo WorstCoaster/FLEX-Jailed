@@ -273,9 +273,9 @@
     }
     
     if (indexPath.row == self.activeIndex) {
-        cell.backgroundColor = FLEXColor.secondaryBackgroundColorWithAlpha(0.6);
+        cell.backgroundColor = [FLEXColor secondaryBackgroundColorWithAlpha:0.6];
     } else {
-        cell.backgroundColor = FLEXColor.primaryBackgroundColorWithAlpha(0.6);
+        cell.backgroundColor = [FLEXColor primaryBackgroundColorWithAlpha:0.6];
     }
     
     return cell;

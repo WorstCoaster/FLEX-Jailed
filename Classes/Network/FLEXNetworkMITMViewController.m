@@ -488,9 +488,9 @@ typedef NS_ENUM(NSInteger, FLEXNetworkObserverMode) {
     // Since we insert from the top, assign background colors bottom up to keep them consistent for each transaction.
     NSInteger totalRows = [tableView numberOfRowsInSection:indexPath.section];
     if ((totalRows - indexPath.row) % 2 == 0) {
-        cell.backgroundColor = FLEXColor.secondaryBackgroundColorWithAlpha(0.6);
+        cell.backgroundColor = [FLEXColor secondaryBackgroundColorWithAlpha:0.6];
     } else {
-        cell.backgroundColor = FLEXColor.primaryBackgroundColorWithAlpha(0.6);
+        cell.backgroundColor = [FLEXColor primaryBackgroundColorWithAlpha:0.6];
     }
 
     NSURL *url = [self urlForTransaction:cell.transaction];

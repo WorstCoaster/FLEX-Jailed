@@ -145,9 +145,9 @@ static BOOL my_os_log_shim_enabled(void *addr) {
             cell.highlightedText = self.filterText;
 
             if (row % 2 == 0) {
-                cell.backgroundColor = FLEXColor.primaryBackgroundColorWithAlpha(0.6);
+                cell.backgroundColor = [FLEXColor primaryBackgroundColorWithAlpha:0.6];
             } else {
-                cell.backgroundColor = FLEXColor.secondaryBackgroundColorWithAlpha(0.6);
+                cell.backgroundColor = [FLEXColor secondaryBackgroundColorWithAlpha:0.6];
             }
         } filterMatcher:^BOOL(NSString *filterText, FLEXSystemLogMessage *message) {
             NSString *displayedText = [FLEXSystemLogCell displayedTextForLogMessage:message];
