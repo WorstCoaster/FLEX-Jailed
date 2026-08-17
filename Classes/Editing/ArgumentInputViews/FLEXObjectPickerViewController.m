@@ -31,7 +31,11 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 @property (nonatomic, unsafe_unretained) id object;
 /// Non-nil when the object is safely owned by the app and may be retained.
 @property (nonatomic, strong) id retainer;
+/// A human-readable name for well-known objects (e.g. @"sharedApplication").
+@property (nonatomic) NSString *label;
+/// Class + object ID (+ label for known objects). Shown as the row subtitle.
 @property (nonatomic) NSString *reference;
+/// A concise, human-readable value for the object. Shown as the row title.
 @property (nonatomic) NSString *summary;
 @end
 
@@ -174,6 +178,96 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
     }
 }
 
++ (NSString *)truncateValue:(NSString *)value {
+    static const NSUInteger kFLEXObjectPickerMaxValueLength = 120;
+    if (!value.length) {
+        return @"";
+    }
+    if (value.length <= kFLEXObjectPickerMaxValueLength) {
+        return value;
+    }
+    return [[value substringToIndex:kFLEXObjectPickerMaxValueLength] stringByAppendingString:@"..."];
+}
+
+/// A short, meaningful value for common object types instead of the raw
+/// <ClassName: 0x…> description. Falls back to -description for everything else.
+/// Heap-discovered objects are intentionally never passed here: they are not
+/// retained and messaging them can crash the process.
++ (NSString *)conciseValueForObject:(id)object {
+    if (object == nil) {
+        return @"";
+    }
+
+    @try {
+        if ([object isKindOfClass:[NSString class]]) {
+            NSString *string = (NSString *)object;
+            return string.length ? [self truncateValue:[NSString stringWithFormat:@"\"%@\"", string]] : @"";
+        }
+        if ([object isKindOfClass:[NSNumber class]]) {
+            return [(NSNumber *)object stringValue];
+        }
+        if ([object isKindOfClass:[NSDate class]]) {
+            return [NSDateFormatter localizedStringFromDate:object
+                dateStyle:NSDateFormatterShortStyle
+                timeStyle:NSDateFormatterShortStyle
+            ];
+        }
+        if ([object isKindOfClass:[NSURL class]]) {
+            return [self truncateValue:[(NSURL *)object absoluteString]];
+        }
+        if ([object isKindOfClass:[NSAttributedString class]]) {
+            return [self truncateValue:[(NSAttributedString *)object string]];
+        }
+        if ([object isKindOfClass:[UIColor class]]) {
+            UIColor *color = (UIColor *)object;
+            CGFloat red, green, blue, alpha;
+            if ([color getRed:&red green:&green blue:&blue alpha:&alpha]) {
+                return [NSString stringWithFormat:@"#%02X%02X%02X (a %.2f)",
+                    (int)(red * 255), (int)(green * 255), (int)(blue * 255), alpha
+                ];
+            }
+            return [color description];
+        }
+        if ([object isKindOfClass:[UILabel class]]) {
+            return [self truncateValue:[(UILabel *)object text]];
+        }
+        if ([object isKindOfClass:[UITextField class]]) {
+            return [self truncateValue:[(UITextField *)object text]];
+        }
+        if ([object isKindOfClass:[UITextView class]]) {
+            return [self truncateValue:[(UITextView *)object text]];
+        }
+        if ([object isKindOfClass:[UIButton class]]) {
+            return [self truncateValue:[(UIButton *)object currentTitle]];
+        }
+        if ([object isKindOfClass:[UIViewController class]]) {
+            return [self truncateValue:[(UIViewController *)object title]];
+        }
+        if ([object isKindOfClass:[UIView class]]) {
+            return NSStringFromCGRect([(UIView *)object frame]);
+        }
+        if ([object isKindOfClass:[CALayer class]]) {
+            return NSStringFromCGRect([(CALayer *)object frame]);
+        }
+        if ([object isKindOfClass:[NSArray class]]) {
+            return [NSString stringWithFormat:@"%lu elements", (unsigned long)[(NSArray *)object count]];
+        }
+        if ([object isKindOfClass:[NSSet class]]) {
+            return [NSString stringWithFormat:@"%lu elements", (unsigned long)[(NSSet *)object count]];
+        }
+        if ([object isKindOfClass:[NSDictionary class]]) {
+            return [NSString stringWithFormat:@"%lu entries", (unsigned long)[(NSDictionary *)object count]];
+        }
+        if ([object isKindOfClass:[NSData class]]) {
+            return [NSString stringWithFormat:@"%lu bytes", (unsigned long)[(NSData *)object length]];
+        }
+    } @catch (NSException *exception) {
+        // Fall through to the safe summary below.
+    }
+
+    return [self truncateValue:[self safeSummaryForObject:object]];
+}
+
 #pragma mark - Relevant instance collection
 
 /// Collects instances reachable from the host app's live UI/object graph
@@ -210,8 +304,8 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
             entry.className = NSStringFromClass(object_getClass(object));
             entry.object = object;
             entry.retainer = object;
-            entry.reference = [NSString stringWithFormat:@"%@ %p", entry.className, object];
-            entry.summary = [[self class] safeSummaryForObject:object];
+            entry.reference = [NSString stringWithFormat:@"%@ · %p", entry.className, object];
+            entry.summary = [[self class] conciseValueForObject:object];
             [entries addObject:entry];
             remaining--;
         }
@@ -300,8 +394,8 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
         FLEXObjectPickerEntry *entry = [FLEXObjectPickerEntry new];
         entry.className = @(class_getName(actualClass));
         entry.object = object;      // unretained on purpose
-        entry.reference = [NSString stringWithFormat:@"%@ %p", entry.className, object];
-        entry.summary = nil;
+        entry.reference = [NSString stringWithFormat:@"%@ · %p", entry.className, object];
+        entry.summary = nil;        // never message an unretained heap object
         [entries addObject:entry];
     }];
 
@@ -344,9 +438,20 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 
     NSMutableArray<FLEXObjectPickerGroup *> *groups = [NSMutableArray new];
     for (NSString *name in orderedNames) {
+        NSMutableArray<FLEXObjectPickerEntry *> *groupEntries = byClass[name];
+        // Surface objects with a meaningful value first, then by address.
+        [groupEntries sortUsingComparator:^NSComparisonResult(FLEXObjectPickerEntry *a, FLEXObjectPickerEntry *b) {
+            BOOL aHasValue = a.summary.length > 0;
+            BOOL bHasValue = b.summary.length > 0;
+            if (aHasValue != bHasValue) {
+                return aHasValue ? NSOrderedAscending : NSOrderedDescending;
+            }
+            return [a.reference localizedCaseInsensitiveCompare:b.reference];
+        }];
+
         FLEXObjectPickerGroup *group = [FLEXObjectPickerGroup new];
         group.className = name;
-        group.objects = byClass[name];
+        group.objects = groupEntries;
         [groups addObject:group];
     }
 
@@ -372,8 +477,16 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
             entry.className = NSStringFromClass(object_getClass(object));
             entry.object = object;
             entry.retainer = object;
-            entry.reference = [NSString stringWithFormat:@"%@ · %@", entry.className, label];
-            entry.summary = [[self class] safeSummaryForObject:object];
+            entry.label = label;
+            NSString *value = [[self class] conciseValueForObject:object];
+            entry.summary = value;
+            if (value.length) {
+                entry.reference = [NSString stringWithFormat:@"%@ · %@ · %p",
+                    entry.className, value, object
+                ];
+            } else {
+                entry.reference = [NSString stringWithFormat:@"%@ · %p", entry.className, object];
+            }
             [entries addObject:entry];
         }
     };
@@ -437,7 +550,8 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 
     NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(FLEXObjectPickerEntry *entry, NSDictionary *bindings) {
         return [entry.reference localizedCaseInsensitiveContainsString:filter] ||
-               [entry.summary localizedCaseInsensitiveContainsString:filter];
+               [entry.summary localizedCaseInsensitiveContainsString:filter] ||
+               [entry.label localizedCaseInsensitiveContainsString:filter];
     }];
     return [self.knownInstances filteredArrayUsingPredicate:predicate];
 }
@@ -450,7 +564,8 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 
     NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(FLEXObjectPickerEntry *entry, NSDictionary *bindings) {
         return [entry.reference localizedCaseInsensitiveContainsString:filter] ||
-               [entry.summary localizedCaseInsensitiveContainsString:filter];
+               [entry.summary localizedCaseInsensitiveContainsString:filter] ||
+               [entry.label localizedCaseInsensitiveContainsString:filter];
     }];
 
     NSMutableArray<FLEXObjectPickerGroup *> *filtered = [NSMutableArray new];
@@ -560,8 +675,8 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 
     if (self.showsKnownSection && indexPath.section == 0) {
         FLEXObjectPickerEntry *entry = self.filteredKnownInstances[indexPath.row];
-        cell.textLabel.text = entry.reference;
-        cell.detailTextLabel.text = entry.summary;
+        cell.textLabel.text = entry.label.length ? entry.label : entry.className;
+        cell.detailTextLabel.text = entry.reference;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return cell;
     }
@@ -584,8 +699,8 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 
     FLEXObjectPickerGroup *group = groups[indexPath.section - self.liveSectionOffset];
     FLEXObjectPickerEntry *entry = group.objects[indexPath.row];
-    cell.textLabel.text = entry.reference;
-    cell.detailTextLabel.text = entry.summary;
+    cell.textLabel.text = entry.summary.length ? entry.summary : entry.className;
+    cell.detailTextLabel.text = entry.reference;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return cell;
 }

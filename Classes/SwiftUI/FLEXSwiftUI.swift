@@ -160,6 +160,19 @@ struct HeapObjectsView: View {
 
 // MARK: - Map Local
 
+/// A persisted "Map Local" rule: remote URL → local file, with an on/off switch.
+fileprivate struct LocalMapping: Identifiable {
+    let url: String
+    let file: String
+    let enabled: Bool
+    var id: String { url }
+}
+
+fileprivate struct EditingMapping: Identifiable {
+    let mapping: LocalMapping
+    var id: String { mapping.url }
+}
+
 /// Editor for "Map Local" rules: remote URL → local file in the app sandbox.
 struct LocalMapView: View {
     let prefilledURL: String?
@@ -168,13 +181,8 @@ struct LocalMapView: View {
     @State private var urlText = ""
     @State private var filePaths: [String] = []
     @State private var selectedFile: String?
-    @State private var mappings: [Mapping] = []
-
-    private struct Mapping: Identifiable {
-        let url: String
-        let file: String
-        var id: String { url }
-    }
+    @State private var mappings: [LocalMapping] = []
+    @State private var editing: EditingMapping?
 
     var body: some View {
         Form {
@@ -185,7 +193,7 @@ struct LocalMapView: View {
                     .keyboardType(.URL)
 
                 if filePaths.isEmpty {
-                    Text("No files in the app's Documents directory yet. Add a file to map requests to it.")
+                    Text("No files in the app's Documents directory yet.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
@@ -196,6 +204,12 @@ struct LocalMapView: View {
                     }
                 }
 
+                Button {
+                    createFile()
+                } label: {
+                    Label("Create new response file", systemImage: "plus")
+                }
+
                 Button("Add mapping") {
                     addMapping()
                 }
@@ -203,7 +217,7 @@ struct LocalMapView: View {
             } header: {
                 Text("Map URL to local file")
             } footer: {
-                Text("Requests to the mapped URL are served from the local file instead of the network.")
+                Text("Requests to the mapped URL are served from the local file instead of the network. Tap the pencil to edit the response in place.")
             }
 
             Section("Active mappings") {
@@ -213,13 +227,26 @@ struct LocalMapView: View {
                         .foregroundColor(.secondary)
                 } else {
                     ForEach(mappings) { mapping in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(mapping.url)
-                                .font(.system(.caption, design: .monospaced))
-                                .lineLimit(1)
-                            Text("→ \((mapping.file as NSString).lastPathComponent)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        HStack(spacing: 12) {
+                            Toggle("", isOn: binding(for: mapping))
+                                .labelsHidden()
+
+                            Button {
+                                openEditor(mapping)
+                            } label: {
+                                Image(systemName: "pencil")
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(mapping.url)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .lineLimit(1)
+                                Text((mapping.file as NSString).lastPathComponent)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .opacity(mapping.enabled ? 1 : 0.5)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
@@ -246,6 +273,12 @@ struct LocalMapView: View {
             urlText = prefilledURL ?? ""
             reload()
         }
+        .sheet(item: $editing) { item in
+            ResponseEditorView(mapping: item.mapping) {
+                reload()
+                completion?()
+            }
+        }
     }
 
     private func reload() {
@@ -253,21 +286,96 @@ struct LocalMapView: View {
         if selectedFile == nil {
             selectedFile = filePaths.first
         }
-        mappings = FLEXSwiftBridge.localMappings().map {
-            Mapping(url: $0["url"] ?? "", file: $0["file"] ?? "")
+        mappings = FLEXSwiftBridge.localMappings().map { dict in
+            LocalMapping(
+                url: (dict["url"] as? String) ?? "",
+                file: (dict["file"] as? String) ?? "",
+                enabled: (dict["enabled"] as? NSNumber)?.boolValue ?? true
+            )
+        }
+    }
+
+    private func binding(for mapping: LocalMapping) -> Binding<Bool> {
+        Binding(
+            get: {
+                self.mappings.first(where: { $0.url == mapping.url })?.enabled ?? mapping.enabled
+            },
+            set: { newValue in
+                FLEXSwiftBridge.setEnabled(newValue, forLocalMappingURL: mapping.url)
+                completion?()
+                reload()
+            }
+        )
+    }
+
+    private func createFile() {
+        if let path = FLEXSwiftBridge.createLocalFile(withBaseName: "response.json") {
+            reload()
+            selectedFile = path
         }
     }
 
     private func addMapping() {
         guard let file = selectedFile, !urlText.isEmpty else { return }
         FLEXSwiftBridge.setLocalMapping(forURL: urlText, toFile: file)
-        completion?()
         reload()
+        completion?()
+        openEditor(LocalMapping(url: urlText, file: file, enabled: true))
     }
 
-    private func remove(_ mapping: Mapping) {
+    private func openEditor(_ mapping: LocalMapping) {
+        editing = EditingMapping(mapping: mapping)
+    }
+
+    private func remove(_ mapping: LocalMapping) {
         FLEXSwiftBridge.removeLocalMapping(forURL: mapping.url)
         completion?()
         reload()
+    }
+}
+
+/// Full-screen UTF-8 text editor for a Map Local response file.
+fileprivate struct ResponseEditorView: View {
+    let mapping: LocalMapping
+    let onDone: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var isLoading = true
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Loading response...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    TextEditor(text: $text)
+                        .font(.system(.body, design: .monospaced))
+                        .padding(8)
+                }
+            }
+            .navigationTitle((mapping.file as NSString).lastPathComponent)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        FLEXSwiftBridge.writeContents(text, toFileAtPath: mapping.file)
+                        onDone()
+                        dismiss()
+                    }
+                    .disabled(isLoading)
+                }
+            }
+            .onAppear {
+                text = FLEXSwiftBridge.fileContents(atPath: mapping.file) ?? ""
+                isLoading = false
+            }
+        }
     }
 }

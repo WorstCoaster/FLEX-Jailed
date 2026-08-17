@@ -2,7 +2,7 @@ name: Build FLEX dylib
 
 on:
   push:
-    branches: [master]
+    branches: [master, dev]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:

@@ -62,7 +62,7 @@
 
 #pragma mark - Map Local
 
-+ (NSArray<NSDictionary<NSString *, NSString *> *> *)localMappings {
++ (NSArray<NSDictionary<NSString *, id> *> *)localMappings {
     return FLEXLocalMapManager.sharedManager.allMappings;
 }
 
@@ -78,8 +78,35 @@
     [FLEXLocalMapManager.sharedManager removeAllMappings];
 }
 
++ (void)setEnabled:(BOOL)enabled forLocalMappingURL:(NSString *)url {
+    [FLEXLocalMapManager.sharedManager setEnabled:enabled forURLString:url];
+}
+
 + (NSArray<NSString *> *)localFilesInDocuments {
     return FLEXLocalMapManager.sharedManager.localFilesInDocuments;
+}
+
++ (nullable NSString *)createLocalFileWithBaseName:(NSString *)name {
+    return [FLEXLocalMapManager.sharedManager createLocalFileWithBaseName:name];
+}
+
++ (nullable NSString *)fileContentsAtPath:(NSString *)path {
+    if (!path.length) {
+        return nil;
+    }
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    if (!data) {
+        return nil;
+    }
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
+
++ (BOOL)writeContents:(NSString *)contents toFileAtPath:(NSString *)path {
+    if (!path.length) {
+        return NO;
+    }
+    NSData *data = [contents dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
+    return [data writeToFile:path atomically:YES];
 }
 
 + (NSString *)mimeTypeForFile:(NSString *)path {

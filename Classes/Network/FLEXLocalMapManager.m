@@ -28,8 +28,8 @@ static NSString * const kFLEXLocalMapMappingsDefaultsKey = @"FLEXLocalMapMapping
 
 #pragma mark - Persistence
 
-- (NSMutableArray<NSDictionary<NSString *, NSString *> *> *)mutableMappings {
-    NSArray<NSDictionary<NSString *, NSString *> *> *stored =
+- (NSMutableArray<NSDictionary<NSString *, id> *> *)mutableMappings {
+    NSArray<NSDictionary<NSString *, id> *> *stored =
         [NSUserDefaults.standardUserDefaults arrayForKey:kFLEXLocalMapMappingsDefaultsKey];
     if (![stored isKindOfClass:[NSArray class]]) {
         stored = @[];
@@ -37,11 +37,11 @@ static NSString * const kFLEXLocalMapMappingsDefaultsKey = @"FLEXLocalMapMapping
     return [stored mutableCopy] ?: [NSMutableArray new];
 }
 
-- (void)saveMappings:(NSArray<NSDictionary<NSString *, NSString *> *> *)mappings {
+- (void)saveMappings:(NSArray<NSDictionary<NSString *, id> *> *)mappings {
     [NSUserDefaults.standardUserDefaults setObject:mappings forKey:kFLEXLocalMapMappingsDefaultsKey];
 }
 
-- (NSArray<NSDictionary<NSString *, NSString *> *> *)allMappings {
+- (NSArray<NSDictionary<NSString *, id> *> *)allMappings {
     return [self mutableMappings] ?: @[];
 }
 
@@ -54,17 +54,24 @@ static NSString * const kFLEXLocalMapMappingsDefaultsKey = @"FLEXLocalMapMapping
     if (!url) {
         return nil;
     }
-    
+
     NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
     components.query = nil;
     components.fragment = nil;
-    
+
     NSString *string = components.string;
     // Strip a trailing slash so "/path" and "/path/" map identically.
     while (string.length > 1 && [string hasSuffix:@"/"]) {
         string = [string substringToIndex:string.length - 1];
     }
     return string.length ? string : nil;
+}
+
+/// Whether a mapping is considered enabled. Mappings written before the enabled
+/// flag was introduced default to enabled.
++ (BOOL)mappingIsEnabled:(NSDictionary<NSString *, id> *)mapping {
+    NSNumber *enabled = mapping[@"enabled"];
+    return enabled ? enabled.boolValue : YES;
 }
 
 #pragma mark - Querying
@@ -74,9 +81,13 @@ static NSString * const kFLEXLocalMapMappingsDefaultsKey = @"FLEXLocalMapMapping
     if (!key.length) {
         return nil;
     }
-    
-    for (NSDictionary<NSString *, NSString *> *mapping in self.allMappings) {
+
+    for (NSDictionary<NSString *, id> *mapping in self.allMappings) {
         if ([mapping[@"url"] isEqualToString:key]) {
+            if (![[self class] mappingIsEnabled:mapping]) {
+                continue;
+            }
+
             NSString *file = mapping[@"file"];
             if (file.length && [NSFileManager.defaultManager fileExistsAtPath:file]) {
                 return file;
@@ -96,20 +107,48 @@ static NSString * const kFLEXLocalMapMappingsDefaultsKey = @"FLEXLocalMapMapping
     if (!urlString.length || !filePath.length) {
         return;
     }
-    
+
     NSString *key = [[self class] normalizeURL:[NSURL URLWithString:urlString]];
     if (!key.length) {
         return;
     }
-    
-    NSMutableArray<NSDictionary<NSString *, NSString *> *> *mappings = [self mutableMappings];
-    // Replace any existing rule for this URL, keep the rest.
+
+    // Preserve the previous enabled state when replacing an existing rule.
+    BOOL enabled = YES;
+    for (NSDictionary<NSString *, id> *mapping in self.allMappings) {
+        if ([mapping[@"url"] isEqualToString:key]) {
+            enabled = [[self class] mappingIsEnabled:mapping];
+            break;
+        }
+    }
+
+    NSMutableArray<NSDictionary<NSString *, id> *> *mappings = [self mutableMappings];
     [mappings removeObjectURL:key];
     [mappings addObject:@{
         @"url" : key,
         @"file" : filePath,
+        @"enabled" : @(enabled),
     }];
     [self saveMappings:mappings];
+}
+
+- (void)setEnabled:(BOOL)enabled forURLString:(NSString *)urlString {
+    NSString *key = [[self class] normalizeURL:[NSURL URLWithString:urlString]];
+    if (!key.length) {
+        return;
+    }
+
+    NSMutableArray<NSDictionary<NSString *, id> *> *mappings = [self mutableMappings];
+    NSInteger index = [mappings indexOfObjectPassingTest:^BOOL(NSDictionary<NSString *, id> *mapping, NSUInteger idx, BOOL *stop) {
+        return [mapping[@"url"] isEqualToString:key];
+    }];
+
+    if (index != NSNotFound) {
+        NSMutableDictionary<NSString *, id> *updated = [mappings[index] mutableCopy];
+        updated[@"enabled"] = @(enabled);
+        mappings[index] = updated;
+        [self saveMappings:mappings];
+    }
 }
 
 - (void)removeMappingForURLString:(NSString *)urlString {
@@ -117,8 +156,8 @@ static NSString * const kFLEXLocalMapMappingsDefaultsKey = @"FLEXLocalMapMapping
     if (!key.length) {
         return;
     }
-    
-    NSMutableArray<NSDictionary<NSString *, NSString *> *> *mappings = [self mutableMappings];
+
+    NSMutableArray<NSDictionary<NSString *, id> *> *mappings = [self mutableMappings];
     [mappings removeObjectURL:key];
     [self saveMappings:mappings];
 }
@@ -136,12 +175,12 @@ static NSString * const kFLEXLocalMapMappingsDefaultsKey = @"FLEXLocalMapMapping
     if (!documents) {
         return @[];
     }
-    
+
     NSArray<NSString *> *contents = [NSFileManager.defaultManager contentsOfDirectoryAtPath:documents error:nil];
     if (!contents) {
         return @[];
     }
-    
+
     NSMutableArray<NSString *> *files = [NSMutableArray new];
     for (NSString *name in contents) {
         NSString *path = [documents stringByAppendingPathComponent:name];
@@ -151,6 +190,33 @@ static NSString * const kFLEXLocalMapMappingsDefaultsKey = @"FLEXLocalMapMapping
         }
     }
     return [files sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
+- (nullable NSString *)createLocalFileWithBaseName:(NSString *)baseName {
+    NSString *documents = NSSearchPathForDirectoriesInDomains(
+        NSDocumentDirectory, NSUserDomainMask, YES
+    ).firstObject;
+    if (!documents) {
+        return nil;
+    }
+
+    NSString *name = baseName.length ? baseName : @"response.txt";
+    NSString *base = [name stringByDeletingPathExtension];
+    NSString *extension = [name pathExtension];
+    NSString *path = [documents stringByAppendingPathComponent:name];
+    NSFileManager *fileManager = NSFileManager.defaultManager;
+
+    NSUInteger counter = 2;
+    while ([fileManager fileExistsAtPath:path]) {
+        NSString *candidate = extension.length
+            ? [NSString stringWithFormat:@"%@-%lu.%@", base, (unsigned long)counter, extension]
+            : [NSString stringWithFormat:@"%@-%lu", base, (unsigned long)counter];
+        path = [documents stringByAppendingPathComponent:candidate];
+        counter++;
+    }
+
+    [fileManager createFileAtPath:path contents:[NSData data] attributes:nil];
+    return path;
 }
 
 - (NSString *)mimeTypeForFile:(NSString *)path {
@@ -189,7 +255,7 @@ static NSString * const kFLEXLocalMapMappingsDefaultsKey = @"FLEXLocalMapMapping
 @implementation NSMutableArray (FLEXLocalMapManager)
 
 - (void)removeObjectURL:(NSString *)key {
-    NSIndexSet *indexes = [self indexesOfObjectsPassingTest:^BOOL(NSDictionary<NSString *, NSString *> *mapping, NSUInteger idx, BOOL *stop) {
+    NSIndexSet *indexes = [self indexesOfObjectsPassingTest:^BOOL(NSDictionary<NSString *, id> *mapping, NSUInteger idx, BOOL *stop) {
         return [mapping[@"url"] isEqualToString:key];
     }];
     if (indexes.count > 0) {

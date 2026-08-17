@@ -17,8 +17,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)sharedManager;
 
-/// Every mapping as @{ @"url": ..., @"file": ... } dictionaries.
-@property (nonatomic, readonly) NSArray<NSDictionary<NSString *, NSString *> *> *allMappings;
+/// Every mapping as @{ @"url": ..., @"file": ..., @"enabled": @YES/@NO } dictionaries.
+@property (nonatomic, readonly) NSArray<NSDictionary<NSString *, id> *> *allMappings;
 
 /// The local file path serving \c url, or nil if there is no mapping.
 - (nullable NSString *)localFilePathForURL:(NSURL *)url;
@@ -26,8 +26,16 @@ NS_ASSUME_NONNULL_BEGIN
 /// Whether a mapping exists for the given URL.
 - (BOOL)hasMappingForURL:(NSURL *)url;
 
-/// Adds or replaces a mapping for the given URL string.
+/// Adds or replaces a mapping for the given URL string. New mappings are
+/// enabled by default; replacing a mapping preserves its previous state.
 - (void)setMappingForURLString:(NSString *)urlString toFilePath:(NSString *)filePath;
+
+/// Enables or disables an existing mapping without removing it.
+- (void)setEnabled:(BOOL)enabled forURLString:(NSString *)urlString;
+
+/// Creates an empty file in the app's Documents directory with a unique name
+/// derived from \c baseName and returns its full path.
+- (nullable NSString *)createLocalFileWithBaseName:(NSString *)baseName;
 
 /// Removes the mapping for the given URL string, if any.
 - (void)removeMappingForURLString:(NSString *)urlString;
