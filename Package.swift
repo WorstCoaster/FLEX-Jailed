@@ -72,6 +72,7 @@ extension Array where Element == CSetting {
             .headerSearchPath("Manager/Private"),
             .headerSearchPath("Editing"),
             .headerSearchPath("Editing/ArgumentInputViews"),
+            .headerSearchPath("SwiftUI"),
             .headerSearchPath("Headers"),
             .headerSearchPath("ExplorerInterface"),
             .headerSearchPath("ExplorerInterface/Tabs"),

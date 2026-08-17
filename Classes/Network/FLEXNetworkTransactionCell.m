@@ -102,7 +102,11 @@ NSString * const kFLEXNetworkTransactionCellIdentifier = @"kFLEXNetworkTransacti
 }
 
 - (NSString *)transactionDetailsLabelText {
-    return self.transaction.tertiaryDescription;
+    NSString *text = self.transaction.tertiaryDescription;
+    if (self.isLocallyMapped) {
+        text = [text stringByAppendingString:@" · Local Map"];
+    }
+    return text;
 }
 
 + (CGFloat)preferredCellHeight {

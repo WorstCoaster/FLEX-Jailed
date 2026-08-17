@@ -13,6 +13,8 @@
 @interface FLEXNetworkTransactionCell : UITableViewCell
 
 @property (nonatomic) FLEXNetworkTransaction *transaction;
+/// When YES, the details line gains a "Local Map" badge (set from the Map Local feature).
+@property (nonatomic) BOOL isLocallyMapped;
 
 @property (nonatomic, readonly, class) NSString *reuseID;
 @property (nonatomic, readonly, class) CGFloat preferredCellHeight;

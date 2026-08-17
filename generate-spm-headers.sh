@@ -63,6 +63,7 @@ makeheader "Classes/ObjectExplorers/Sections/Shortcuts/FLEXShortcut.h"
 makeheader "Classes/ObjectExplorers/Sections/Shortcuts/FLEXShortcutsSection.h"
 makeheader "Classes/GlobalStateExplorers/Globals/FLEXGlobalsEntry.h"
 makeheader "Classes/GlobalStateExplorers/FileBrowser/FLEXFileBrowserController.h"
+makeheader "Classes/SwiftUI/FLEXSwiftBridge.h"
 
 # Print all folders in Classes for use in Package.swift
 for folder in `find "Classes" -type d`; do

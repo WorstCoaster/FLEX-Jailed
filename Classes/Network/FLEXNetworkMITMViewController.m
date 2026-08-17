@@ -14,6 +14,8 @@
 #import "FLEXNetworkRecorder.h"
 #import "FLEXNetworkObserver.h"
 #import "FLEXNetworkTransactionCell.h"
+#import "FLEXLocalMapManager.h"
+#import "FLEXSwiftUIHost.h"
 #import "FLEXHTTPTransactionDetailController.h"
 #import "FLEXNetworkSettingsController.h"
 #import "FLEXObjectExplorerFactory.h"
@@ -491,6 +493,9 @@ typedef NS_ENUM(NSInteger, FLEXNetworkObserverMode) {
         cell.backgroundColor = FLEXColor.primaryBackgroundColorWithAlpha(0.6);
     }
 
+    NSURL *url = [self urlForTransaction:cell.transaction];
+    cell.isLocallyMapped = url != nil && [FLEXLocalMapManager.sharedManager hasMappingForURL:url];
+
     return cell;
 }
 
@@ -580,6 +585,34 @@ typedef NS_ENUM(NSInteger, FLEXNetworkObserverMode) {
                 
                 children = [children arrayByAddingObject:denylist];
             }
+            
+            // Map Local / Remove Local Mapping
+            NSURL *transactionURL = [self urlForTransaction:transaction];
+            if (transactionURL) {
+                UIAction *mapLocal = [UIAction
+                    actionWithTitle:@"Map Local…"
+                    image:[UIImage systemImageNamed:@"arrow.triangle.swap"]
+                    identifier:nil
+                    handler:^(__kindof UIAction *action) {
+                        [self presentLocalMapForURL:transactionURL];
+                    }
+                ];
+                children = [children arrayByAddingObject:mapLocal];
+                
+                if ([FLEXLocalMapManager.sharedManager hasMappingForURL:transactionURL]) {
+                    UIAction *removeMap = [UIAction
+                        actionWithTitle:@"Remove Local Mapping"
+                        image:[UIImage systemImageNamed:@"xmark.circle"]
+                        identifier:nil
+                        handler:^(__kindof UIAction *action) {
+                            [FLEXLocalMapManager.sharedManager removeMappingForURLString:transactionURL.absoluteString];
+                            [self.tableView reloadData];
+                        }
+                    ];
+                    children = [children arrayByAddingObject:removeMap];
+                }
+            }
+            
             return [UIMenu
                 menuWithTitle:@"" image:nil identifier:nil
                 options:UIMenuOptionsDisplayInline
@@ -591,6 +624,26 @@ typedef NS_ENUM(NSInteger, FLEXNetworkObserverMode) {
 
 - (FLEXNetworkTransaction *)transactionAtIndexPath:(NSIndexPath *)indexPath {
     return self.dataSource.transactions[indexPath.row];
+}
+
+#pragma mark - Map Local
+
+- (NSURL *)urlForTransaction:(FLEXNetworkTransaction *)transaction {
+    if ([transaction isKindOfClass:[FLEXURLTransaction class]]) {
+        return ((FLEXURLTransaction *)transaction).request.URL;
+    }
+    return nil;
+}
+
+- (void)presentLocalMapForURL:(NSURL *)url {
+    UIViewController *mapVC = [FLEXSwiftUIHost
+        localMapControllerWithPrefilledURL:url.absoluteString
+        completion:^{
+            [self.tableView reloadData];
+        }
+    ];
+    mapVC.title = @"Map Local";
+    [self.navigationController pushViewController:mapVC animated:YES];
 }
 
 - (FLEXHTTPTransaction *)HTTPTransactionAtIndexPath:(NSIndexPath *)indexPath {

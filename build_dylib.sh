@@ -110,6 +110,16 @@ if ! printf '%s\n' "${SOURCES[@]}" | grep -q "FLEXDylibEntry.m"; then
 fi
 echo -e "${GREEN}Found ${#SOURCES[@]} source files${NC}"
 
+# ---------------------------------------------------------------- swift sources
+
+SWIFT_FILES=()
+while IFS= read -r -d '' file; do
+    SWIFT_FILES+=("$file")
+done < <(find "$PROJECT_DIR/Classes" -type f -name "*.swift" -print0)
+if [[ ${#SWIFT_FILES[@]} -gt 0 ]]; then
+    echo -e "${BLUE}Found ${#SWIFT_FILES[@]} Swift source files${NC}"
+fi
+
 # ---------------------------------------------------------------- flags
 
 COMMON_FLAGS=(
@@ -138,6 +148,7 @@ FRAMEWORKS=(
     -framework WebKit
     -framework Security
     -framework SceneKit
+    -framework SwiftUI
 )
 
 LIBS=(
@@ -207,6 +218,26 @@ compile_arch() {
         return 1
     fi
 
+    # ------------------------------------------------------------ swift compile
+    if [[ ${#SWIFT_FILES[@]} -gt 0 ]]; then
+        echo -e "${BLUE}Compiling Swift for $arch...${NC}"
+        local swift_obj="$objdir/SwiftUI.o"
+        local swift_log="$logdir/swift.log"
+        local bridging_header="$PROJECT_DIR/Classes/SwiftUI/FLEX-Bridging-Header.h"
+        if ! xcrun swiftc \
+            -target "$target" \
+            -sdk "$sdk" \
+            -module-name FLEX \
+            -import-objc-header "$bridging_header" \
+            -emit-object \
+            -o "$swift_obj" \
+            "${SWIFT_FILES[@]}" > "$swift_log" 2>&1; then
+            echo "  FAILED: Swift compilation" >&2
+            tail -40 "$swift_log" >&2
+            return 1
+        fi
+    fi
+
     local obj_count
     obj_count="$(find "$objdir" -name '*.o' | wc -l | tr -d ' ')"
     echo -e "${GREEN}Compiled $obj_count object files for $arch${NC}"
@@ -233,15 +264,17 @@ for arch in "${ARCHS[@]}"; do
     echo -e "${BLUE}Linking $arch dylib...${NC}"
     OBJECT_FILES=()
     while IFS= read -r f; do OBJECT_FILES+=("$f"); done < <(find "$OBJ_ROOT/$arch" -name '*.o' | sort)
-    "$CC" \
+    # Link through the swiftc driver so the Swift runtime is linked correctly
+    # (the dylib contains SwiftUI code compiled from the Classes/SwiftUI sources).
+    xcrun swiftc \
         -target "$target" \
-        -isysroot "$SDK_PATH" \
-        -mios-version-min="$MIN_IOS_VERSION" \
-        -dynamiclib \
-        -install_name "@rpath/$DYLIB_NAME" \
-        -compatibility_version 1.0 \
-        -current_version 1.0 \
-        -Wl,-dead_strip \
+        -sdk "$SDK_PATH" \
+        -emit-library \
+        -module-name FLEX \
+        -Xlinker -install_name -Xlinker "@rpath/$DYLIB_NAME" \
+        -Xlinker -compatibility_version -Xlinker 1.0 \
+        -Xlinker -current_version -Xlinker 1.0 \
+        -Xlinker -dead_strip \
         "${OBJECT_FILES[@]}" \
         "${FRAMEWORKS[@]}" \
         "${LIBS[@]}" \

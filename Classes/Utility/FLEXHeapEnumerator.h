@@ -37,6 +37,15 @@ typedef void (^flex_object_enumeration_block_t)(__unsafe_unretained id object, _
 + (void)enumerateLiveObjectsUsingBlock:(flex_object_enumeration_block_t)callback
 NS_SWIFT_UNAVAILABLE("Use one of the other methods instead.");
 
+/// Same as \c enumerateLiveObjectsUsingBlock:, but reports overall progress
+/// (0.0 → 1.0) as the heap walk proceeds. The progress handler is called from
+/// the enumeration thread; dispatch to the main queue yourself if you need to
+/// update UI. A quick counting pass runs first to know how many ranges to expect,
+/// so the progress is determinate rather than an indeterminate spinner.
++ (void)enumerateLiveObjectsUsingBlock:(flex_object_enumeration_block_t)callback
+                      progressHandler:(void (^ _Nullable)(double progress))progressHandler
+NS_SWIFT_UNAVAILABLE("Use one of the other methods instead.");
+
 /// Returned references are not validated beyond containing a valid isa.
 /// To validate them yourself, pass each reference's object to \c FLEXPointerIsValidObjcObject
 + (NSArray<FLEXObjectRef *> *)instancesOfClassWithName:(NSString *)className retained:(BOOL)retain;
@@ -48,6 +57,11 @@ NS_SWIFT_UNAVAILABLE("Use one of the other methods instead.");
 
 /// Capture all live objects on the heap and do with this information what you will.
 + (FLEXHeapSnapshot *)generateHeapSnapshot;
+
+/// Same as \c generateHeapSnapshot, but reports determinate progress (0.0 → 1.0)
+/// as the walk proceeds. The progress handler is called from the enumeration
+/// thread; dispatch to the main queue yourself if you need to update UI.
++ (FLEXHeapSnapshot *)generateHeapSnapshotWithProgress:(void (^ _Nullable)(double progress))progressHandler;
 
 @end
 

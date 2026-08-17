@@ -12,6 +12,7 @@
 #import "FLEXUtility.h"
 #import "FLEXScopeCarousel.h"
 #import "FLEXTableView.h"
+#import "FLEXSwiftUIHost.h"
 #import <objc/runtime.h>
 
 static const NSInteger kFLEXLiveObjectsSortAlphabeticallyIndex = 0;
@@ -141,10 +142,11 @@ static const NSInteger kFLEXLiveObjectsSortBySizeIndex = 2;
 }
 
 + (UIViewController *)globalsEntryViewController:(FLEXGlobalsRow)row {
-    FLEXLiveObjectsController *liveObjectsViewController = [self new];
-    liveObjectsViewController.title = [self globalsEntryTitle:row];
-
-    return liveObjectsViewController;
+    // The modern SwiftUI heap screen scans off the main thread and shows a
+    // progress bar, so entering it never freezes the app.
+    UIViewController *controller = [FLEXSwiftUIHost heapObjectsController];
+    controller.title = [self globalsEntryTitle:row];
+    return controller;
 }
 
 

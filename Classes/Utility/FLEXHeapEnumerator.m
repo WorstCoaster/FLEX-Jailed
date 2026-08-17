@@ -22,6 +22,20 @@ typedef struct {
     Class isa;
 } flex_maybe_object_t;
 
+/// The context threaded through the zone enumerator callback. It carries the
+/// user's object block, an optional progress block, and the counters needed to
+/// report determinate progress. The zone is unlocked around every user-block
+/// invocation so callbacks may allocate freely (matching FLEX's original design).
+typedef struct {
+    flex_object_enumeration_block_t __unsafe_unretained block;
+    void (^__unsafe_unretained progress)(double);
+    NSUInteger rangesSeen;
+    NSUInteger totalRanges;
+    void (*lock)(malloc_zone_t *zone);
+    void (*unlock)(malloc_zone_t *zone);
+    malloc_zone_t *zone;
+} flex_enumeration_context_t;
+
 @implementation FLEXHeapSnapshot
 + (instancetype)snapshotWithCounts:(NSDictionary<NSString *, NSNumber *> *)counts
                              sizes:(NSDictionary<NSString *, NSNumber *> *)sizes {
@@ -37,8 +51,14 @@ typedef struct {
 @implementation FLEXHeapEnumerator
 
 static void range_callback(task_t task, void *context, unsigned type, vm_range_t *ranges, unsigned rangeCount) {
-    if (!context) {
+    flex_enumeration_context_t *ctx = context;
+    if (!ctx || !ctx->block) {
         return;
+    }
+    
+    // Unlock the zone while we run the user's blocks so they may allocate freely.
+    if (ctx->unlock) {
+        ctx->unlock(ctx->zone);
     }
     
     for (unsigned int i = 0; i < rangeCount; i++) {
@@ -54,8 +74,25 @@ static void range_callback(task_t task, void *context, unsigned type, vm_range_t
 #endif
         // If the class pointer matches one in our set of class pointers from the runtime, then we should have an object.
         if (CFSetContainsValue(registeredClasses, (__bridge const void *)(tryClass))) {
-            (*(flex_object_enumeration_block_t __unsafe_unretained *)context)((__bridge id)tryObject, tryClass);
+            ctx->block((__bridge id)tryObject, tryClass);
         }
+    }
+    
+    if (ctx->progress) {
+        ctx->rangesSeen += rangeCount;
+        double p = ctx->totalRanges > 0 ? (double)ctx->rangesSeen / (double)ctx->totalRanges : 1.0;
+        ctx->progress(p < 1.0 ? p : 1.0);
+    }
+    
+    if (ctx->lock) {
+        ctx->lock(ctx->zone);
+    }
+}
+
+static void count_range_callback(task_t task, void *context, unsigned type, vm_range_t *ranges, unsigned rangeCount) {
+    NSUInteger *total = context;
+    if (total) {
+        *total += rangeCount;
     }
 }
 
@@ -65,6 +102,11 @@ static kern_return_t reader(__unused task_t remote_task, vm_address_t remote_add
 }
 
 + (void)enumerateLiveObjectsUsingBlock:(flex_object_enumeration_block_t)block {
+    [self enumerateLiveObjectsUsingBlock:block progressHandler:nil];
+}
+
++ (void)enumerateLiveObjectsUsingBlock:(flex_object_enumeration_block_t)block
+                      progressHandler:(void (^)(double))progressHandler {
     if (!block) {
         return;
     }
@@ -80,7 +122,26 @@ static kern_return_t reader(__unused task_t remote_task, vm_address_t remote_add
     unsigned int zoneCount = 0;
     kern_return_t result = malloc_get_all_zones(TASK_NULL, reader, &zones, &zoneCount);
     
+    // A quick counting pass gives us a determinate progress bar instead of a
+    // spinner. The count walk is much cheaper than the full object walk.
+    NSUInteger totalRanges = 0;
+    if (progressHandler) {
+        totalRanges = [self countInUseRanges];
+        if (totalRanges == 0) {
+            progressHandler(1.0);
+        }
+    }
+    
     if (result == KERN_SUCCESS) {
+        flex_enumeration_context_t ctx;
+        ctx.block = block;
+        ctx.progress = progressHandler;
+        ctx.rangesSeen = 0;
+        ctx.totalRanges = totalRanges;
+        ctx.lock = NULL;
+        ctx.unlock = NULL;
+        ctx.zone = NULL;
+        
         for (unsigned int i = 0; i < zoneCount; i++) {
             malloc_zone_t *zone = (malloc_zone_t *)zones[i];
             malloc_introspection_t *introspection = zone->introspect;
@@ -94,13 +155,6 @@ static kern_return_t reader(__unused task_t remote_task, vm_address_t remote_add
             void (*lock_zone)(malloc_zone_t *zone)   = introspection->force_lock;
             void (*unlock_zone)(malloc_zone_t *zone) = introspection->force_unlock;
 
-            // Callback has to unlock the zone so we freely allocate memory inside the given block
-            flex_object_enumeration_block_t callback = ^(__unsafe_unretained id object, __unsafe_unretained Class actualClass) {
-                unlock_zone(zone);
-                block(object, actualClass);
-                lock_zone(zone);
-            };
-            
             BOOL lockZoneValid = FLEXPointerIsReadable(lock_zone);
             BOOL unlockZoneValid =  FLEXPointerIsReadable(unlock_zone);
 
@@ -109,12 +163,53 @@ static kern_return_t reader(__unused task_t remote_task, vm_address_t remote_add
             // or garbage, so we resort to checking for NULL
             // and whether the pointer is readable
             if (introspection->enumerator && lockZoneValid && unlockZoneValid) {
+                ctx.lock = lock_zone;
+                ctx.unlock = unlock_zone;
+                ctx.zone = zone;
+
                 lock_zone(zone);
-                introspection->enumerator(TASK_NULL, (void *)&callback, MALLOC_PTR_IN_USE_RANGE_TYPE, (vm_address_t)zone, reader, &range_callback);
+                introspection->enumerator(TASK_NULL, &ctx, MALLOC_PTR_IN_USE_RANGE_TYPE, (vm_address_t)zone, reader, &range_callback);
                 unlock_zone(zone);
             }
         }
     }
+}
+
+/// Walks every malloc zone and counts the total number of in-use ranges. This is
+/// used to make progress reporting determinate. It never allocates, so it is safe
+/// to run while the zones are locked.
++ (NSUInteger)countInUseRanges {
+    NSUInteger total = 0;
+    
+    vm_address_t *zones = NULL;
+    unsigned int zoneCount = 0;
+    kern_return_t result = malloc_get_all_zones(TASK_NULL, reader, &zones, &zoneCount);
+    if (result != KERN_SUCCESS) {
+        return 0;
+    }
+    
+    for (unsigned int i = 0; i < zoneCount; i++) {
+        malloc_zone_t *zone = (malloc_zone_t *)zones[i];
+        malloc_introspection_t *introspection = zone->introspect;
+        if (!introspection || !introspection->enumerator) {
+            continue;
+        }
+        
+        void (*lock_zone)(malloc_zone_t *zone)   = introspection->force_lock;
+        void (*unlock_zone)(malloc_zone_t *zone) = introspection->force_unlock;
+        if (!FLEXPointerIsReadable(lock_zone) || !FLEXPointerIsReadable(unlock_zone)) {
+            continue;
+        }
+        
+        NSUInteger zoneTotal = 0;
+        lock_zone(zone);
+        introspection->enumerator(TASK_NULL, &zoneTotal, MALLOC_PTR_IN_USE_RANGE_TYPE, (vm_address_t)zone, reader, &count_range_callback);
+        unlock_zone(zone);
+        
+        total += zoneTotal;
+    }
+    
+    return total;
 }
 
 + (void)updateRegisteredClasses {
@@ -192,6 +287,10 @@ static kern_return_t reader(__unused task_t remote_task, vm_address_t remote_add
 }
 
 + (FLEXHeapSnapshot *)generateHeapSnapshot {
+    return [self generateHeapSnapshotWithProgress:nil];
+}
+
++ (FLEXHeapSnapshot *)generateHeapSnapshotWithProgress:(void (^)(double))progressHandler {
     // Set up a CFMutableDictionary with class pointer keys and NSUInteger values.
     // We abuse CFMutableDictionary a little to have primitive keys through judicious casting, but it gets the job done.
     // The dictionary is intialized with a 0 count for each class so that it doesn't have to expand during enumeration.
@@ -215,7 +314,7 @@ static kern_return_t reader(__unused task_t remote_task, vm_address_t remote_add
         CFDictionarySetValue(
             mutableCountsForClasses, (__bridge const void *)cls, (const void *)instanceCount
         );
-    }];
+    } progressHandler:progressHandler];
     
     // Convert our CF primitive dictionary into a nicer mapping of class name strings to instance counts
     NSMutableDictionary<NSString *, NSNumber *> *countsForClassNames = [NSMutableDictionary new];

@@ -202,6 +202,15 @@ To test:
   glass sheet, and list rows use translucent cell backgrounds so the Liquid
   Glass look carries through the whole interface instead of stopping at the
   toolbar
+- **SwiftUI surfaces** - the "Heap Objects" screen is now a SwiftUI list with
+  search and a determinate progress bar, and the heap scan runs on a background
+  queue (with a quick counting pass first) so entering the tab no longer
+  freezes the app. Selecting a class still pushes the classic instance list.
+- **Map Local (network)** - long-pressing any request in the network history
+  offers "Map Local…", which opens a SwiftUI editor to serve that URL from a
+  file in the app's Documents directory. `FLEXLocalMappingURLProtocol` fulfills
+  matched requests locally, and mapped transactions show a "Local Map" badge;
+  rules persist in user defaults and can be removed individually or all at once.
 
 ## Notes
 
