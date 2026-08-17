@@ -30,6 +30,8 @@
 + (UIViewController *)topViewControllerInWindow:(UIWindow *)window;
 
 + (UIColor *)consistentRandomColorForObject:(id)object;
+/// A full-bleed, tinted Liquid Glass (UIGlassEffect) background view for FLEX chrome.
++ (UIVisualEffectView *)glassBackgroundView;
 + (NSString *)descriptionForView:(UIView *)view includingFrame:(BOOL)includeFrame;
 + (NSString *)stringForCGRect:(CGRect)rect;
 + (UIViewController *)viewControllerForView:(UIView *)view;

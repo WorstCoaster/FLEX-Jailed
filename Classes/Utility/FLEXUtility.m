@@ -429,6 +429,13 @@ BOOL FLEXConstructorsShouldRun(void) {
     return ([contentEncoding rangeOfString:@"deflate" options:NSCaseInsensitiveSearch].length > 0 || [contentEncoding rangeOfString:@"gzip" options:NSCaseInsensitiveSearch].length > 0);
 }
 
++ (UIVisualEffectView *)glassBackgroundView {
+    UIVisualEffectView *view = [[UIVisualEffectView alloc] initWithEffect:[UIGlassEffect new]];
+    view.backgroundColor = [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.4];
+    view.userInteractionEnabled = NO;
+    return view;
+}
+
 + (NSArray<UIWindow *> *)allWindows {
     BOOL includeInternalWindows = YES;
     BOOL onlyVisibleWindows = NO;

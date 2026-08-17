@@ -8,6 +8,7 @@
 
 #import "FLEXStringPickerViewController.h"
 #import "FLEXColor.h"
+#import "FLEXUtility.h"
 
 @interface FLEXStringPickerViewController () <UISearchResultsUpdating>
 
@@ -49,7 +50,8 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
 
-    self.tableView.backgroundColor = FLEXColor.groupedBackgroundColor;
+    self.tableView.backgroundColor = UIColor.clearColor;
+    self.tableView.backgroundView = [FLEXUtility glassBackgroundView];
 
     self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.searchController.searchResultsUpdater = self;

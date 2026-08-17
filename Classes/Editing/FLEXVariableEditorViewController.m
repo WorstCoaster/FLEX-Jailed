@@ -82,10 +82,17 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     
-    self.view.backgroundColor = FLEXColor.scrollViewBackgroundColor;
-    
+    // Translucent Liquid Glass background: live changes to the underlying UI
+    // stay visible while editing.
+    self.view.backgroundColor = UIColor.clearColor;
+
+    UIVisualEffectView *backgroundView = [FLEXUtility glassBackgroundView];
+    backgroundView.frame = self.view.bounds;
+    backgroundView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.view addSubview:backgroundView];
+
     self.scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
-    self.scrollView.backgroundColor = self.view.backgroundColor;
+    self.scrollView.backgroundColor = UIColor.clearColor;
     self.scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.scrollView.delegate = self;
     [self.view addSubview:self.scrollView];

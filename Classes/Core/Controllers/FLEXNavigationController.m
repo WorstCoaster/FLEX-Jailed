@@ -37,6 +37,9 @@
     [super viewDidLoad];
 
     [self setupModernBarAppearance];
+
+    // Let the presented sheet's Liquid Glass show through the content area.
+    self.view.backgroundColor = UIColor.clearColor;
     
     self.waitingToAddTab = YES;
     
@@ -70,8 +73,9 @@
 /// no hairline shadow. Matches the iOS 26 system look.
 - (void)setupModernBarAppearance {
     UINavigationBarAppearance *navAppearance = [UINavigationBarAppearance new];
+    // iOS 26's default background is the Liquid Glass material; don't replace
+    // it with the older chrome material.
     [navAppearance configureWithDefaultBackground];
-    navAppearance.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterial];
     navAppearance.backgroundColor = UIColor.clearColor;
     navAppearance.shadowColor = UIColor.clearColor;
     self.navigationBar.standardAppearance = navAppearance;
@@ -80,7 +84,6 @@
 
     UIToolbarAppearance *toolbarAppearance = [UIToolbarAppearance new];
     [toolbarAppearance configureWithDefaultBackground];
-    toolbarAppearance.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterial];
     toolbarAppearance.backgroundColor = UIColor.clearColor;
     toolbarAppearance.shadowColor = UIColor.clearColor;
     self.toolbar.standardAppearance = toolbarAppearance;

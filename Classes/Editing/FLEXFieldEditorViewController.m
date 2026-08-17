@@ -53,7 +53,9 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
 
-    self.view.backgroundColor = FLEXColor.groupedBackgroundColor;
+    // The superclass installs a translucent Liquid Glass background; keep the
+    // field editor transparent so live changes remain visible underneath.
+    self.view.backgroundColor = UIColor.clearColor;
 
     // Create getter button
     _getterButton = [[UIBarButtonItem alloc]

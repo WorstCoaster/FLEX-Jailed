@@ -173,8 +173,17 @@ To test:
 - **Liquid Glass design (iOS 26)** - the explorer toolbar is now a floating
   glass pill (`UIGlassEffect`) with continuous-corner highlights and a
   matching glass caption under the selected-view description; navigation and
-  toolbars use the frosted `systemChromeMaterial` appearance with no hairline,
-  matching the modern system look
+  toolbars use iOS 26's default Liquid Glass appearance (no hairline), and the
+  FLEX window is transparent so the glass actually blurs the host app's UI
+  underneath it instead of an opaque backdrop
+- **Translucent editing** - the variable/field/method editors and the string
+  and instance pickers now sit on a translucent, blurred Liquid Glass
+  background instead of an opaque one, so live changes to views and other UI
+  elements stay faintly visible while you edit them
+- **Glass lists** - every FLEX table screen (globals menu, object explorers,
+  file browser, system log, and the rest) shares the same translucent glass
+  background, so the Liquid Glass look carries through the whole interface
+  instead of stopping at the toolbar
 
 ## Notes
 

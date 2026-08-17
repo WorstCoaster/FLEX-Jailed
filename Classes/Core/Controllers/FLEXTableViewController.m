@@ -215,6 +215,11 @@ CGFloat const kFLEXDebounceForExpensiveIO = 0.5;
     self.tableView.delegate = self;
     
     self.tableView.estimatedRowHeight = 10;
+
+    // Translucent Liquid Glass behind the list so the sheet (and the app
+    // underneath it) stays visible, matching the modern system look.
+    self.tableView.backgroundColor = UIColor.clearColor;
+    self.tableView.backgroundView = [FLEXUtility glassBackgroundView];
     
     _shareToolbarItem = FLEXBarButtonItemSystem(Action, self, @selector(shareButtonPressed:));
     _bookmarksToolbarItem = [UIBarButtonItem

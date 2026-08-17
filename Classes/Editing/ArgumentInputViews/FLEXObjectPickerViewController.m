@@ -104,7 +104,8 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 56;
-    self.tableView.backgroundColor = FLEXColor.groupedBackgroundColor;
+    self.tableView.backgroundColor = UIColor.clearColor;
+    self.tableView.backgroundView = [FLEXUtility glassBackgroundView];
 
     self.searchController = [[UISearchController alloc] initWithSearchResultsController:nil];
     self.searchController.searchResultsUpdater = self;

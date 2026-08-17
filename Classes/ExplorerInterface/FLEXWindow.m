@@ -15,6 +15,11 @@
 - (id)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
+        // FLEX is a transparent overlay: leave the window clear so the app's
+        // UI (and live edits made through translucent FLEX sheets) stays visible.
+        self.backgroundColor = UIColor.clearColor;
+        self.opaque = NO;
+
         // Some apps have windows at UIWindowLevelStatusBar + n.
         // If we make the window level too high, we block out UIAlertViews.
         // There's a balance between staying above the app's windows and staying below alerts.
