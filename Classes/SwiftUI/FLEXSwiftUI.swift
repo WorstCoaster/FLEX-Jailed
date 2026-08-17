@@ -24,8 +24,10 @@ public final class FLEXSwiftUIHost: NSObject {
     @objc public static func heapObjectsController() -> UIViewController {
         let host = UIHostingController(rootView: HeapObjectsView(onSelect: { _ in }))
         host.view.backgroundColor = .clear
-        let view = HeapObjectsView { className in
-            guard let nav = host.navigationController else { return }
+        // Capture the host weakly: the root view is retained by the host, so a
+        // strong capture would keep the whole heap screen alive after dismissal.
+        let view = HeapObjectsView { [weak host] className in
+            guard let host = host, let nav = host.navigationController else { return }
             FLEXSwiftBridge.pushInstances(ofClass: className, from: nav.topViewController ?? host)
         }
         host.rootView = view

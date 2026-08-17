@@ -63,6 +63,11 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 /// Raw-heap results, populated only after the user explicitly requests a scan.
 @property (nonatomic) NSArray<FLEXObjectPickerGroup *> *heapGroups;
 @property (nonatomic) BOOL didScanHeap;
+/// True while an on-demand heap scan is running in the background; shows a
+/// spinner row instead of an empty state so the picker never looks frozen.
+@property (nonatomic) BOOL isScanningHeap;
+/// Bumped to invalidate in-flight scans when the user rescans.
+@property (nonatomic) NSUInteger heapScanGeneration;
 @property (nonatomic) UISearchController *searchController;
 
 @end
@@ -522,6 +527,9 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 }
 
 - (void)rescan {
+    // Invalidate any in-flight heap scan so its results don't land late.
+    self.heapScanGeneration++;
+    self.isScanningHeap = NO;
     self.knownInstances = [self collectKnownInstances];
     self.instanceGroups = [self collectInstanceGroups];
     self.heapGroups = nil;
@@ -529,10 +537,32 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
     [self.tableView reloadData];
 }
 
+/// Scans the heap on a background queue so the picker never freezes; the empty
+/// state shows a spinner while the scan runs. The scan is bounded, and results
+/// only replace the list if the user hasn't rescanned in the meantime.
 - (void)scanHeap {
-    self.heapGroups = [self collectHeapGroups];
-    self.didScanHeap = YES;
+    if (self.isScanningHeap) {
+        return;
+    }
+
+    NSUInteger generation = ++self.heapScanGeneration;
+    self.isScanningHeap = YES;
+    self.heapGroups = nil;
+    self.didScanHeap = NO;
     [self.tableView reloadData];
+
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSArray<FLEXObjectPickerGroup *> *groups = [self collectHeapGroups];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation != self.heapScanGeneration) {
+                return; // The user rescanned while this scan was running.
+            }
+            self.heapGroups = groups;
+            self.didScanHeap = YES;
+            self.isScanningHeap = NO;
+            [self.tableView reloadData];
+        });
+    });
 }
 
 #pragma mark - Filtering
@@ -653,6 +683,9 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section == self.tableView.numberOfSections - 1) {
+        if (self.isScanningHeap) {
+            return @"Scanning the heap for matching instances…";
+        }
         if (self.isShowingHeapResults) {
             return @"No UI instances matched this type. These heap instances are not retained and may be unstable.";
         }
@@ -683,17 +716,24 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
 
     NSArray<FLEXObjectPickerGroup *> *groups = self.displayGroups;
     if (groups.count == 0) {
-        if (self.filterText.length > 0) {
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        if (self.isScanningHeap) {
+            cell.textLabel.text = @"Scanning the heap…";
+            cell.detailTextLabel.text = @"Looking for matching instances";
+            cell.accessoryView = [self scanningSpinner];
+        } else if (self.filterText.length > 0) {
             cell.textLabel.text = @"No matching instances";
             cell.detailTextLabel.text = @"Clear the search to browse all instances";
+            cell.accessoryView = nil;
         } else if (!self.didScanHeap) {
             cell.textLabel.text = @"No instances in the app's UI";
             cell.detailTextLabel.text = @"Tap to scan the heap for matches";
+            cell.accessoryView = nil;
         } else {
             cell.textLabel.text = @"No matching instances found";
             cell.detailTextLabel.text = @"Tap to rescan";
+            cell.accessoryView = nil;
         }
-        cell.accessoryType = UITableViewCellAccessoryNone;
         return cell;
     }
 
@@ -702,7 +742,19 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
     cell.textLabel.text = entry.summary.length ? entry.summary : entry.className;
     cell.detailTextLabel.text = entry.reference;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    cell.accessoryView = nil;
     return cell;
+}
+
+/// A small spinner used in the scanning row. Cells are reused, so the spinner
+/// is created fresh each time and stopped when the row scrolls away.
+- (UIActivityIndicatorView *)scanningSpinner {
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc]
+        initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium
+    ];
+    spinner.hidesWhenStopped = YES;
+    [spinner startAnimating];
+    return spinner;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -716,7 +768,7 @@ static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
         if (groups.count == 0) {
             // Only trigger collection when there is actually nothing to show;
             // a search mismatch should not start an expensive scan.
-            if (self.filterText.length == 0) {
+            if (self.filterText.length == 0 && !self.isScanningHeap) {
                 if (self.didScanHeap) {
                     [self rescan];
                 } else {

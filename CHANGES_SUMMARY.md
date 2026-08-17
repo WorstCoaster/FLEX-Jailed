@@ -211,6 +211,13 @@ To test:
   file in the app's Documents directory. `FLEXLocalMappingURLProtocol` fulfills
   matched requests locally, and mapped transactions show a "Local Map" badge;
   rules persist in user defaults and can be removed individually or all at once.
+- **Heap screen memory fix** - the SwiftUI heap objects host no longer retains
+  itself through its row-selection closure, so dismissing the screen releases
+  it instead of leaking the whole view controller.
+- **Freeze-free instance picking** - the instance picker's on-demand heap scan
+  now runs on a background queue with a spinner row ("Scanning the heap…")
+  instead of blocking the main thread, and in-flight scans are invalidated when
+  the user rescans so stale results never land late.
 
 ## Notes
 
