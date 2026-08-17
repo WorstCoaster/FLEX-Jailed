@@ -141,12 +141,15 @@ To test:
     delegate, key window, root view controller, notification center, defaults,
     file manager, screen, device, bundle, pasteboard, process info, URL cache)
     above the live list, with a search field to narrow both lists
-  - Live instances come from the app's reachable UI/object graph (windows,
-    view controllers, views, layers, and gestures) rather than a full-heap
-    dump, so the list shows relevant objects instead of thousands of unrelated
-    allocations; a bounded heap scan only runs as a fallback when the UI graph
-    has no matches for the requested class
-  - Heap-discovered objects are no longer retained or messaged, which fixes the
+  - Live instances come from the **host app's** reachable UI/object graph
+    (windows, view controllers, views, layers, and gestures) rather than a
+    full-heap dump; FLEX's own window and UI are skipped so the debugger never
+    pollutes the list
+  - When the UI graph has no matches, the picker shows an empty state with an
+    **on-demand** bounded heap scan instead of silently dumping unrelated
+    allocations; heap objects are shown unretained and with a warning, which
+    keeps choosing instances from crashing
+  - Heap-discovered objects are never retained or messaged, which fixes the
     crash that occurred when choosing an instance from unsafe libdispatch and
     other non-NSObject heap objects
   - Object-typed arguments default straight to the instance picker, so the
@@ -196,8 +199,9 @@ To test:
   faintly visible while you edit them
 - **Glass lists** - every FLEX table screen (globals menu, object explorers,
   file browser, system log, and the rest) uses a clear background over the
-  glass sheet, so the Liquid Glass look carries through the whole interface
-  instead of stopping at the toolbar
+  glass sheet, and list rows use translucent cell backgrounds so the Liquid
+  Glass look carries through the whole interface instead of stopping at the
+  toolbar
 
 ## Notes
 

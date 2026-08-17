@@ -129,7 +129,7 @@
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:identifier];
         cell.textLabel.textColor = FLEXColor.primaryTextColor;
         cell.textLabel.font = [UIFont monospacedSystemFontOfSize:15 weight:UIFontWeightRegular];
-        cell.backgroundColor = FLEXColor.primaryBackgroundColor;
+        cell.backgroundColor = FLEXColor.primaryBackgroundColorWithAlpha(0.6);
     }
 
     NSArray<NSString *> *options = self.filteredOptions;
