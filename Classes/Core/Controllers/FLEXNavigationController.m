@@ -69,13 +69,17 @@
     }
 }
 
-/// Modern translucent navigation bar and toolbar: frosted material,
-/// no hairline shadow. Matches the iOS 26 system look.
+/// On iOS 26 the navigation bar and toolbar use the Liquid Glass appearance by
+/// default, so leave them untouched (any background customization disables it).
+/// Older systems get the frosted chrome material with no hairline shadow.
 - (void)setupModernBarAppearance {
+    if (@available(iOS 26.0, *)) {
+        return;
+    }
+
     UINavigationBarAppearance *navAppearance = [UINavigationBarAppearance new];
-    // iOS 26's default background is the Liquid Glass material; don't replace
-    // it with the older chrome material.
     [navAppearance configureWithDefaultBackground];
+    navAppearance.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterial];
     navAppearance.backgroundColor = UIColor.clearColor;
     navAppearance.shadowColor = UIColor.clearColor;
     self.navigationBar.standardAppearance = navAppearance;
@@ -84,6 +88,7 @@
 
     UIToolbarAppearance *toolbarAppearance = [UIToolbarAppearance new];
     [toolbarAppearance configureWithDefaultBackground];
+    toolbarAppearance.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterial];
     toolbarAppearance.backgroundColor = UIColor.clearColor;
     toolbarAppearance.shadowColor = UIColor.clearColor;
     self.toolbar.standardAppearance = toolbarAppearance;
@@ -101,7 +106,10 @@
             UISheetPresentationControllerDetent.largeDetent,
         ];
         presenter.prefersScrollingExpandsWhenScrolledToEdge = NO;
-        presenter.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierLarge;
+        // Present at the partial-height detent so the sheet keeps its Liquid
+        // Glass (translucent, blurred) appearance and the app stays visible
+        // underneath. The large detent would switch to an opaque background.
+        presenter.selectedDetentIdentifier = UISheetPresentationControllerDetentIdentifierMedium;
         presenter.largestUndimmedDetentIdentifier = UISheetPresentationControllerDetentIdentifierLarge;
     }
     

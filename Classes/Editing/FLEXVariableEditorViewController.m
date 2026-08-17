@@ -82,14 +82,9 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     
-    // Translucent Liquid Glass background: live changes to the underlying UI
-    // stay visible while editing.
+    // Keep the editor transparent so the presenting sheet's Liquid Glass
+    // background shows through; live changes to the underlying UI stay visible.
     self.view.backgroundColor = UIColor.clearColor;
-
-    UIVisualEffectView *backgroundView = [FLEXUtility glassBackgroundView];
-    backgroundView.frame = self.view.bounds;
-    backgroundView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self.view addSubview:backgroundView];
 
     self.scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
     self.scrollView.backgroundColor = UIColor.clearColor;

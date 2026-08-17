@@ -135,17 +135,25 @@ To test:
     default, keeping the stream readable; both filters can be toggled in the
     log's settings
 - **Instance picker** - method-calling arguments now have an "Instance" mode
-  that scans the heap and lists live instances of the argument class and its
-  subclasses, so you can pass real objects without digging through the debugger
+  that lists live instances relevant to the argument class, so you can pass
+  real objects without digging through the debugger
   - The picker now surfaces well-known singletons and app objects (app,
     delegate, key window, root view controller, notification center, defaults,
     file manager, screen, device, bundle, pasteboard, process info, URL cache)
-    above the heap scan, with a search field to narrow both lists
+    above the live list, with a search field to narrow both lists
+  - Live instances come from the app's reachable UI/object graph (windows,
+    view controllers, views, layers, and gestures) rather than a full-heap
+    dump, so the list shows relevant objects instead of thousands of unrelated
+    allocations; a bounded heap scan only runs as a fallback when the UI graph
+    has no matches for the requested class
+  - Heap-discovered objects are no longer retained or messaged, which fixes the
+    crash that occurred when choosing an instance from unsafe libdispatch and
+    other non-NSObject heap objects
   - Object-typed arguments default straight to the instance picker, so the
     available options are visible immediately
-  - Live instances are now grouped by concrete class with per-group counts,
-    the target class is surfaced first, and known singletons are retained for
-    the lifetime of the picker (no dangling window/root-view-controller refs)
+  - Live instances are grouped by concrete class with per-group counts and the
+    target class is surfaced first; known/reachable instances are retained for
+    the lifetime of the picker
 - **Value pools for `SEL` arguments** - when calling a method or editing a
   selector-typed property, a "Choose" button now lists every selector available
   on the target (instance or class methods, including inherited ones) in a
@@ -172,17 +180,23 @@ To test:
   iOS 26 inset-grouped list style so they match the rest of the modernized UI
 - **Liquid Glass design (iOS 26)** - the explorer toolbar is now a floating
   glass pill (`UIGlassEffect`) with continuous-corner highlights and a
-  matching glass caption under the selected-view description; navigation and
-  toolbars use iOS 26's default Liquid Glass appearance (no hairline), and the
-  FLEX window is transparent so the glass actually blurs the host app's UI
-  underneath it instead of an opaque backdrop
+  matching glass caption under the selected-view description
+  - FLEX sheets now present at the partial-height detent, which keeps the
+    system's translucent, blurred Liquid Glass sheet background (the large
+    detent would switch it to an opaque surface), and the app behind stays
+    undimmed so live edits remain visible
+  - Navigation bars and toolbars are left at their iOS 26 default Liquid Glass
+    appearance instead of overriding the background material (which disabled
+    the glass and left a flat bar)
+  - The FLEX window is transparent so the glass actually blurs the host app's
+    UI underneath it instead of an opaque backdrop
 - **Translucent editing** - the variable/field/method editors and the string
-  and instance pickers now sit on a translucent, blurred Liquid Glass
-  background instead of an opaque one, so live changes to views and other UI
-  elements stay faintly visible while you edit them
+  and instance pickers keep a clear background so the sheet's Liquid Glass
+  shows through, letting live changes to views and other UI elements stay
+  faintly visible while you edit them
 - **Glass lists** - every FLEX table screen (globals menu, object explorers,
-  file browser, system log, and the rest) shares the same translucent glass
-  background, so the Liquid Glass look carries through the whole interface
+  file browser, system log, and the rest) uses a clear background over the
+  glass sheet, so the Liquid Glass look carries through the whole interface
   instead of stopping at the toolbar
 
 ## Notes

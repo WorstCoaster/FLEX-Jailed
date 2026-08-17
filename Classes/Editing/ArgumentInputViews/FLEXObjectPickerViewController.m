@@ -8,20 +8,40 @@
 
 #import "FLEXObjectPickerViewController.h"
 #import "FLEXHeapEnumerator.h"
-#import "FLEXObjectRef.h"
 #import "FLEXRuntimeUtility.h"
 #import "FLEXUtility.h"
 #import "FLEXColor.h"
 #import <malloc/malloc.h>
 #import <objc/runtime.h>
 
-/// Keep the heap scan bounded. This is a picker, not a full object browser.
-static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
+/// Upper bound on the total number of entries surfaced in the picker.
+static const NSUInteger kFLEXObjectPickerMaxResults = 200;
+/// Upper bound on the heap fallback when no relevant instances are found.
+static const NSUInteger kFLEXObjectPickerHeapFallbackLimit = 100;
+
+/// A single live instance the user can pick.
+///
+/// Objects collected from the app's reachable object graph are retained so they
+/// stay valid while the picker is on screen. Objects discovered by the raw heap
+/// fallback are intentionally *not* retained: retaining arbitrary heap objects
+/// (libdispatch internals, for example) can crash the process.
+@interface FLEXObjectPickerEntry : NSObject
+@property (nonatomic) NSString *className;
+@property (nonatomic, unsafe_unretained) id object;
+/// Non-nil when the object is safely owned by the app and may be retained.
+@property (nonatomic, strong) id retainer;
+@property (nonatomic) NSString *reference;
+@property (nonatomic) NSString *summary;
+@end
+
+@implementation FLEXObjectPickerEntry
+@end
+
 
 /// A named group of live instances that all share the same concrete class.
 @interface FLEXObjectPickerGroup : NSObject
 @property (nonatomic) NSString *className;
-@property (nonatomic) NSArray<FLEXObjectRef *> *objects;
+@property (nonatomic) NSArray<FLEXObjectPickerEntry *> *objects;
 @end
 
 @implementation FLEXObjectPickerGroup
@@ -33,9 +53,9 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 @property (nonatomic) NSString *className;
 @property (nonatomic) Class targetClass;
 @property (nonatomic, copy) void (^completion)(id object);
-@property (nonatomic) NSArray<FLEXObjectRef *> *knownInstances;
+@property (nonatomic) NSArray<FLEXObjectPickerEntry *> *knownInstances;
 @property (nonatomic) NSArray<FLEXObjectPickerGroup *> *instanceGroups;
-@property (nonatomic) BOOL truncated;
+@property (nonatomic) BOOL usedHeapFallback;
 @property (nonatomic) UISearchController *searchController;
 
 @end
@@ -125,87 +145,199 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     self.instanceGroups = [self collectInstanceGroups];
 }
 
-#pragma mark - Instance collection
+#pragma mark - Matching
 
-- (NSArray<FLEXObjectPickerGroup *> *)collectInstanceGroups {
+- (BOOL)class:(Class)cls matchesTargetClass:(Class)target {
+    if (target == NULL) {
+        return YES;
+    }
+
+    Class cursor = cls;
+    while (cursor != NULL) {
+        if (cursor == target) {
+            return YES;
+        }
+        cursor = class_getSuperclass(cursor);
+    }
+
+    return NO;
+}
+
++ (NSString *)safeSummaryForObject:(id)object {
+    @try {
+        return [FLEXRuntimeUtility summaryForObject:object] ?: @"";
+    } @catch (NSException *exception) {
+        return @"";
+    }
+}
+
+#pragma mark - Relevant instance collection
+
+/// Collects instances reachable from the app's live UI/object graph (windows,
+/// view controllers, views, layers, gestures, and the app/delegate roots).
+/// These are the instances most likely to be the one the user wants, and they
+/// are safe to retain because the app still owns them.
+- (NSArray<FLEXObjectPickerEntry *> *)collectRelevantInstances {
+    NSMutableArray<FLEXObjectPickerEntry *> *entries = [NSMutableArray new];
+    NSMutableSet<NSValue *> *seen = [NSMutableSet new];
+    __block NSUInteger remaining = kFLEXObjectPickerMaxResults;
+
+    __block void (^explore)(id object);
+    explore = ^(id object) {
+        if (!object || remaining == 0) {
+            return;
+        }
+
+        NSValue *box = [NSValue valueWithPointer:(__bridge const void *)object];
+        if ([seen containsObject:box]) {
+            return;
+        }
+        [seen addObject:box];
+
+        if ([self class:object_getClass(object) matchesTargetClass:self.targetClass]) {
+            FLEXObjectPickerEntry *entry = [FLEXObjectPickerEntry new];
+            entry.className = NSStringFromClass(object_getClass(object));
+            entry.object = object;
+            entry.retainer = object;
+            entry.reference = [NSString stringWithFormat:@"%@ %p", entry.className, object];
+            entry.summary = [[self class] safeSummaryForObject:object];
+            [entries addObject:entry];
+            remaining--;
+        }
+
+        if ([object isKindOfClass:[UIWindow class]]) {
+            explore(((UIWindow *)object).rootViewController);
+        } else if ([object isKindOfClass:[UIViewController class]]) {
+            UIViewController *vc = (UIViewController *)object;
+            explore(vc.view);
+            explore(vc.presentedViewController);
+            for (UIViewController *child in vc.childViewControllers) {
+                explore(child);
+            }
+            explore(vc.parentViewController);
+            explore(vc.navigationController);
+            explore(vc.tabBarController);
+        } else if ([object isKindOfClass:[UIView class]]) {
+            UIView *view = (UIView *)object;
+            for (UIView *subview in view.subviews) {
+                explore(subview);
+            }
+            explore(view.layer);
+            explore([FLEXUtility viewControllerForView:view]);
+            for (UIGestureRecognizer *gesture in view.gestureRecognizers) {
+                explore(gesture);
+            }
+        } else if ([object isKindOfClass:[CALayer class]]) {
+            CALayer *layer = (CALayer *)object;
+            for (CALayer *sublayer in layer.sublayers) {
+                explore(sublayer);
+            }
+            explore(layer.delegate);
+        } else if ([object isKindOfClass:[UIApplication class]]) {
+            UIApplication *app = (UIApplication *)object;
+            explore(app.delegate);
+            for (UIWindow *window in app.windows) {
+                explore(window);
+            }
+        }
+    };
+
+    UIApplication *app = UIApplication.sharedApplication;
+    explore(app);
+    explore(app.delegate);
+    for (UIWindow *window in FLEXUtility.allWindows) {
+        explore(window);
+    }
+    explore(FLEXUtility.appKeyWindow);
+
+    // Break the recursive block's retain cycle before returning.
+    explore = nil;
+
+    return entries;
+}
+
+/// Bounded raw-heap fallback used only when no relevant instances match the
+/// requested class. Entries are left unretained and never messaged, since
+/// arbitrary heap objects are not guaranteed to be safe to retain or describe.
+- (NSArray<FLEXObjectPickerGroup *> *)collectHeapGroups {
     Class targetClass = self.targetClass;
-    BOOL matchAny = (targetClass == NULL);
+    if (targetClass == NULL) {
+        return @[];
+    }
 
-    // Bounding the "any object" scan keeps a few hot classes from crowding
-    // every other class out of the list.
-    NSUInteger perClassLimit = matchAny ? 40 : kFLEXObjectPickerMaxResults;
-    NSUInteger totalLimit = matchAny ? 2000 : kFLEXObjectPickerMaxResults;
-
-    // Collect raw pointers during the walk without retaining them; arbitrary
-    // heap objects (some libdispatch internals, for example) can be unsafe to
-    // retain. We validate and retain only the candidates we keep, below.
-    NSMutableDictionary<NSString *, NSMutableArray<NSValue *> *> *byClass = [NSMutableDictionary new];
-    NSMutableOrderedSet<NSString *> *classOrder = [NSMutableOrderedSet new];
-    __block NSUInteger total = 0;
-    __block BOOL truncated = NO;
+    NSMutableArray<FLEXObjectPickerEntry *> *entries = [NSMutableArray new];
+    NSMutableSet<NSValue *> *seen = [NSMutableSet new];
 
     [FLEXHeapEnumerator enumerateLiveObjectsUsingBlock:^(
         __unsafe_unretained id object, __unsafe_unretained Class actualClass
     ) {
-        if (truncated) {
-            return;
-        }
-        if (total >= totalLimit) {
-            truncated = YES;
+        if (entries.count >= kFLEXObjectPickerHeapFallbackLimit) {
             return;
         }
         if (actualClass == NULL) {
             return;
         }
-
-        // Match the class or any subclass without messaging the object, since
-        // heap candidates are only validated by their isa pointer. A nil
-        // target class means "every object".
-        BOOL matches = matchAny;
-        if (!matchAny) {
-            Class tryClass = actualClass;
-            while (tryClass != NULL) {
-                if (tryClass == targetClass) {
-                    matches = YES;
-                    break;
-                }
-                tryClass = class_getSuperclass(tryClass);
-            }
-        }
-
-        if (!matches) {
+        if (![self class:actualClass matchesTargetClass:targetClass]) {
             return;
         }
         if (malloc_size((__bridge const void *)object) == 0) {
             return;
         }
 
-        NSString *className = @(class_getName(actualClass));
-        NSMutableArray<NSValue *> *boxes = byClass[className];
-        if (!boxes) {
-            boxes = [NSMutableArray new];
-            byClass[className] = boxes;
-            [classOrder addObject:className];
-        }
-        if (boxes.count >= perClassLimit) {
+        NSValue *box = [NSValue valueWithPointer:(__bridge const void *)object];
+        if ([seen containsObject:box]) {
             return;
         }
+        [seen addObject:box];
 
-        [boxes addObject:[NSValue valueWithPointer:(__bridge const void *)object]];
-        total++;
+        FLEXObjectPickerEntry *entry = [FLEXObjectPickerEntry new];
+        entry.className = @(class_getName(actualClass));
+        entry.object = object;      // unretained on purpose
+        entry.reference = [NSString stringWithFormat:@"%@ %p", entry.className, object];
+        entry.summary = nil;
+        [entries addObject:entry];
     }];
 
-    self.truncated = truncated;
+    if (entries.count == 0) {
+        return @[];
+    }
 
-    // Build retained groups so the picker can keep the instances alive while
-    // it is on screen. Validate each pointer first; the heap lock is released
-    // by the time we get here.
+    FLEXObjectPickerGroup *group = [FLEXObjectPickerGroup new];
+    group.className = NSStringFromClass(targetClass);
+    group.objects = entries;
+    return @[group];
+}
+
+- (NSArray<FLEXObjectPickerGroup *> *)collectInstanceGroups {
+    NSArray<FLEXObjectPickerEntry *> *relevant = [self collectRelevantInstances];
+
+    // Prefer reachable, relevant instances. Only fall back to the raw heap when
+    // the object graph yields nothing for the requested class (e.g. picking an
+    // NSDate or some other model object that never appears in the UI).
+    if (relevant.count == 0) {
+        self.usedHeapFallback = YES;
+        return [self collectHeapGroups];
+    }
+    self.usedHeapFallback = NO;
+
+    NSMutableDictionary<NSString *, NSMutableArray<FLEXObjectPickerEntry *> *> *byClass = [NSMutableDictionary new];
+    NSMutableOrderedSet<NSString *> *classOrder = [NSMutableOrderedSet new];
+    for (FLEXObjectPickerEntry *entry in relevant) {
+        NSMutableArray<FLEXObjectPickerEntry *> *groupEntries = byClass[entry.className];
+        if (!groupEntries) {
+            groupEntries = [NSMutableArray new];
+            byClass[entry.className] = groupEntries;
+            [classOrder addObject:entry.className];
+        }
+        [groupEntries addObject:entry];
+    }
+
     NSMutableArray<NSString *> *orderedNames = [[classOrder.array
         sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)] mutableCopy];
 
-    // Surface the target class first so the most common pick is at the top.
-    if (targetClass != NULL) {
-        NSString *targetName = NSStringFromClass(targetClass);
+    // Surface the requested class first so the most common pick is at the top.
+    if (self.targetClass != NULL) {
+        NSString *targetName = NSStringFromClass(self.targetClass);
         if ([orderedNames containsObject:targetName]) {
             [orderedNames removeObject:targetName];
             [orderedNames insertObject:targetName atIndex:0];
@@ -214,23 +346,9 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 
     NSMutableArray<FLEXObjectPickerGroup *> *groups = [NSMutableArray new];
     for (NSString *name in orderedNames) {
-        NSArray<NSValue *> *boxes = byClass[name];
-        NSMutableArray<FLEXObjectRef *> *refs = [NSMutableArray new];
-        for (NSValue *box in boxes) {
-            void *pointer = box.pointerValue;
-            if (![FLEXRuntimeUtility pointerIsValidObjcObject:pointer]) {
-                continue;
-            }
-            [refs addObject:[FLEXObjectRef retained:(__bridge id)pointer]];
-        }
-
-        if (refs.count == 0) {
-            continue;
-        }
-
         FLEXObjectPickerGroup *group = [FLEXObjectPickerGroup new];
         group.className = name;
-        group.objects = refs;
+        group.objects = byClass[name];
         [groups addObject:group];
     }
 
@@ -238,12 +356,12 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 }
 
 /// Well-known singletons and app objects that match the target class. These are
-/// listed above the heap scan so common values are one tap away.
-- (NSArray<FLEXObjectRef *> *)collectKnownInstances {
+/// listed above the live instances so common values are one tap away.
+- (NSArray<FLEXObjectPickerEntry *> *)collectKnownInstances {
     Class targetClass = self.targetClass;
     BOOL matchAny = (targetClass == NULL);
 
-    NSMutableArray<FLEXObjectRef *> *refs = [NSMutableArray new];
+    NSMutableArray<FLEXObjectPickerEntry *> *entries = [NSMutableArray new];
     NSHashTable *seen = [NSHashTable weakObjectsHashTable];
 
     void (^add)(id object, NSString *label) = ^(id object, NSString *label) {
@@ -252,9 +370,13 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
         }
         [seen addObject:object];
         if (matchAny || [FLEXRuntimeUtility safeObject:object isKindOfClass:targetClass]) {
-            // Retain these as well; window and root-view-controller references
-            // can change while the picker is on screen.
-            [refs addObject:[FLEXObjectRef retained:object ivar:label]];
+            FLEXObjectPickerEntry *entry = [FLEXObjectPickerEntry new];
+            entry.className = NSStringFromClass(object_getClass(object));
+            entry.object = object;
+            entry.retainer = object;
+            entry.reference = [NSString stringWithFormat:@"%@ · %@", entry.className, label];
+            entry.summary = [[self class] safeSummaryForObject:object];
+            [entries addObject:entry];
         }
     };
 
@@ -281,7 +403,7 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     add(NSProcessInfo.processInfo, @"processInfo");
     add(NSURLCache.sharedURLCache, @"sharedURLCache");
 
-    return refs;
+    return entries;
 }
 
 - (void)rescan {
@@ -297,15 +419,15 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     return text.length ? text : nil;
 }
 
-- (NSArray<FLEXObjectRef *> *)filteredKnownInstances {
+- (NSArray<FLEXObjectPickerEntry *> *)filteredKnownInstances {
     NSString *filter = self.filterText;
     if (!filter) {
         return self.knownInstances;
     }
 
-    NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(FLEXObjectRef *ref, NSDictionary *bindings) {
-        return [ref.reference localizedCaseInsensitiveContainsString:filter] ||
-               [ref.summary localizedCaseInsensitiveContainsString:filter];
+    NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(FLEXObjectPickerEntry *entry, NSDictionary *bindings) {
+        return [entry.reference localizedCaseInsensitiveContainsString:filter] ||
+               [entry.summary localizedCaseInsensitiveContainsString:filter];
     }];
     return [self.knownInstances filteredArrayUsingPredicate:predicate];
 }
@@ -316,14 +438,14 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
         return self.instanceGroups;
     }
 
-    NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(FLEXObjectRef *ref, NSDictionary *bindings) {
-        return [ref.reference localizedCaseInsensitiveContainsString:filter] ||
-               [ref.summary localizedCaseInsensitiveContainsString:filter];
+    NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(FLEXObjectPickerEntry *entry, NSDictionary *bindings) {
+        return [entry.reference localizedCaseInsensitiveContainsString:filter] ||
+               [entry.summary localizedCaseInsensitiveContainsString:filter];
     }];
 
     NSMutableArray<FLEXObjectPickerGroup *> *filtered = [NSMutableArray new];
     for (FLEXObjectPickerGroup *group in self.instanceGroups) {
-        NSArray<FLEXObjectRef *> *matching = [group.objects filteredArrayUsingPredicate:predicate];
+        NSArray<FLEXObjectPickerEntry *> *matching = [group.objects filteredArrayUsingPredicate:predicate];
         if (matching.count > 0) {
             FLEXObjectPickerGroup *copy = [FLEXObjectPickerGroup new];
             copy.className = group.className;
@@ -376,7 +498,7 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     }
 
     if (self.liveGroups.count == 0) {
-        return @"Live instances";
+        return @"Relevant instances";
     }
 
     FLEXObjectPickerGroup *group = self.liveGroups[section - self.liveSectionOffset];
@@ -384,9 +506,13 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (self.truncated && self.liveGroups.count > 0 &&
-        section == self.tableView.numberOfSections - 1) {
-        return @"Showing a limited sample of live instances. Use search to narrow the results.";
+    if (section == self.tableView.numberOfSections - 1) {
+        if (self.usedHeapFallback) {
+            return @"No UI instances matched this type; showing live heap instances instead.";
+        }
+        if (self.liveGroups.count > 0) {
+            return @"Showing instances reachable from the app's current UI. Use search to narrow the results.";
+        }
     }
     return nil;
 }
@@ -402,9 +528,9 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     }
 
     if (self.showsKnownSection && indexPath.section == 0) {
-        FLEXObjectRef *ref = self.filteredKnownInstances[indexPath.row];
-        cell.textLabel.text = ref.reference;
-        cell.detailTextLabel.text = ref.summary;
+        FLEXObjectPickerEntry *entry = self.filteredKnownInstances[indexPath.row];
+        cell.textLabel.text = entry.reference;
+        cell.detailTextLabel.text = entry.summary;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return cell;
     }
@@ -414,17 +540,17 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
             cell.textLabel.text = @"No matching instances";
             cell.detailTextLabel.text = @"Clear the search to browse all instances";
         } else {
-            cell.textLabel.text = @"No live instances found";
-            cell.detailTextLabel.text = @"Tap to rescan the heap";
+            cell.textLabel.text = @"No relevant instances found";
+            cell.detailTextLabel.text = @"Tap to rescan";
         }
         cell.accessoryType = UITableViewCellAccessoryNone;
         return cell;
     }
 
     FLEXObjectPickerGroup *group = self.liveGroups[indexPath.section - self.liveSectionOffset];
-    FLEXObjectRef *ref = group.objects[indexPath.row];
-    cell.textLabel.text = ref.reference;
-    cell.detailTextLabel.text = ref.summary;
+    FLEXObjectPickerEntry *entry = group.objects[indexPath.row];
+    cell.textLabel.text = entry.reference;
+    cell.detailTextLabel.text = entry.summary;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return cell;
 }
@@ -432,12 +558,12 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 
-    FLEXObjectRef *ref = nil;
+    FLEXObjectPickerEntry *entry = nil;
     if (self.showsKnownSection && indexPath.section == 0) {
-        ref = self.filteredKnownInstances[indexPath.row];
+        entry = self.filteredKnownInstances[indexPath.row];
     } else if (self.liveGroups.count == 0) {
-        // Only rescan when the heap is actually empty; a search mismatch
-        // should not trigger an expensive heap walk.
+        // Only rescan when there is actually nothing to show; a search mismatch
+        // should not trigger an expensive collection.
         if (self.filterText.length == 0) {
             [self rescan];
         }
@@ -445,15 +571,31 @@ static const NSUInteger kFLEXObjectPickerMaxResults = 1000;
     } else {
         FLEXObjectPickerGroup *group = self.liveGroups[indexPath.section - self.liveSectionOffset];
         if (indexPath.row < group.objects.count) {
-            ref = group.objects[indexPath.row];
+            entry = group.objects[indexPath.row];
         }
     }
 
-    if (ref) {
-        id object = ref.object;
-        if (self.completion) {
-            self.completion(object);
-        }
+    if (!entry) {
+        return;
+    }
+
+    id object = entry.object;
+    BOOL isValid = entry.retainer != nil ||
+        [FLEXRuntimeUtility pointerIsValidObjcObject:(__bridge const void *)object];
+    if (!isValid) {
+        UIAlertController *alert = [UIAlertController
+            alertControllerWithTitle:@"Instance unavailable"
+            message:@"That instance was deallocated. Rescanning for a fresh list."
+            preferredStyle:UIAlertControllerStyleAlert
+        ];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        [self rescan];
+        return;
+    }
+
+    if (self.completion) {
+        self.completion(object);
     }
 
     [self.navigationController popViewControllerAnimated:YES];

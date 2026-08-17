@@ -10,17 +10,18 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Presents a pickable list of the live instances of a class (including
-/// subclasses). Selecting a row invokes the completion block with the
-/// retained instance and pops the picker.
+/// Presents a pickable list of instances relevant to the requested class:
+/// well-known singletons plus objects reachable from the app's current UI,
+/// falling back to a bounded heap scan when the UI graph has no matches.
+/// Selecting a row invokes the completion block and pops the picker.
 @interface FLEXObjectPickerViewController : UITableViewController
 
 + (instancetype)pickerForClassName:(NSString *)className
                         completion:(void(^)(id object))completion;
 
-/// Presents a searchable list of every live object on the heap, grouped by
-/// class, plus the well-known singletons (app, windows, defaults, etc.).
-/// Used when an argument is typed as plain `id` and has no class hint.
+/// Presents a searchable list of objects reachable from the app's current UI,
+/// grouped by class, plus the well-known singletons (app, windows, defaults,
+/// etc.). Used when an argument is typed as plain `id` and has no class hint.
 + (instancetype)pickerForAnyObjectWithCompletion:(void(^)(id object))completion;
 
 /// The class name encoded in an Objective-C type encoding, or nil.
